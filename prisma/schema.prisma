@@ -1,0 +1,158 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ─── Категории операций ───────────────────────────────────────────────────────
+
+model Category {
+  id          String        @id @default(cuid())
+  name        String
+  type        String        // income | expense | transfer
+  color       String?
+  icon        String?
+  createdAt   DateTime      @default(now())
+  transactions Transaction[]
+}
+
+// ─── Хранилище стоимости ──────────────────────────────────────────────────────
+
+model Vault {
+  id               String         @id @default(cuid())
+  name             String
+  type             String         // bank | cash | crypto | investment | deposit | steam | property | other
+  currency         String         @default("RUB")
+  isActive         Boolean        @default(true)
+  includeInNetWorth Boolean       @default(true)
+  liquidityLevel   String         @default("medium") // high | medium | low | illiquid
+  riskLevel        String         @default("low")    // none | low | medium | high | extreme
+  valuationMode    String         @default("manual") // manual | auto | formula
+  color            String?
+  icon             String?
+  notes            String?
+  sortOrder        Int            @default(0)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  assets           Asset[]
+  incomeEvents     IncomeEvent[]
+  transactionsFrom Transaction[]  @relation("TransactionFrom")
+  transactionsTo   Transaction[]  @relation("TransactionTo")
+  relationsFrom    VaultRelation[] @relation("RelationFrom")
+  relationsTo      VaultRelation[] @relation("RelationTo")
+  snapshots        VaultSnapshot[]
+}
+
+// ─── Актив внутри хранилища ───────────────────────────────────────────────────
+
+model Asset {
+  id                String           @id @default(cuid())
+  vaultId           String
+  name              String
+  assetType         String           // stock | crypto | bond | etf | commodity | real_estate | item | other
+  ticker            String?
+  quantity          Float            @default(0)
+  unit              String           @default("шт")
+  averageBuyPrice   Float?
+  currentUnitPrice  Float?
+  currentTotalValue Float?
+  currency          String           @default("RUB")
+  sourceType        String           @default("manual") // manual | api | import
+  notes             String?
+  isActive          Boolean          @default(true)
+  lastUpdatedAt     DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  vault             Vault            @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  valuations        AssetValuation[]
+  incomeEvents      IncomeEvent[]
+}
+
+// ─── История оценки актива ────────────────────────────────────────────────────
+
+model AssetValuation {
+  id         String   @id @default(cuid())
+  assetId    String
+  date       DateTime
+  unitPrice  Float
+  totalValue Float
+  source     String   @default("manual") // manual | api | import
+  isImported Boolean  @default(false)
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  asset      Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+}
+
+// ─── Операция (доход / расход / перевод) ─────────────────────────────────────
+
+model Transaction {
+  id           String    @id @default(cuid())
+  date         DateTime
+  type         String    // income | expense | transfer
+  amount       Float
+  currency     String    @default("RUB")
+  fromVaultId  String?
+  toVaultId    String?
+  categoryId   String?
+  note         String?
+  tags         String?   // JSON-массив строк
+  isRecurring  Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  fromVault    Vault?    @relation("TransactionFrom", fields: [fromVaultId], references: [id])
+  toVault      Vault?    @relation("TransactionTo", fields: [toVaultId], references: [id])
+  category     Category? @relation(fields: [categoryId], references: [id])
+}
+
+// ─── Доходное событие (дивиденды, купоны, стейкинг…) ─────────────────────────
+
+model IncomeEvent {
+  id         String   @id @default(cuid())
+  assetId    String?
+  vaultId    String?
+  date       DateTime
+  amount     Float
+  currency   String   @default("RUB")
+  incomeType String   // dividend | coupon | staking | rental | other
+  note       String?
+  createdAt  DateTime @default(now())
+
+  asset      Asset?   @relation(fields: [assetId], references: [id])
+  vault      Vault?   @relation(fields: [vaultId], references: [id])
+}
+
+// ─── Связь между хранилищами ──────────────────────────────────────────────────
+
+model VaultRelation {
+  id           String   @id @default(cuid())
+  fromVaultId  String
+  toVaultId    String
+  relationType String   // funding | withdrawal | hedge | collateral | other
+  strength     Float    @default(1.0)
+  note         String?
+  createdAt    DateTime @default(now())
+
+  fromVault    Vault    @relation("RelationFrom", fields: [fromVaultId], references: [id])
+  toVault      Vault    @relation("RelationTo", fields: [toVaultId], references: [id])
+}
+
+// ─── Снимок баланса хранилища (для истории) ───────────────────────────────────
+
+model VaultSnapshot {
+  id        String   @id @default(cuid())
+  vaultId   String
+  date      DateTime
+  balance   Float
+  currency  String   @default("RUB")
+  source    String   @default("manual")
+  createdAt DateTime @default(now())
+
+  vault     Vault    @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+}
