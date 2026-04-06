@@ -1,9 +1,10 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatNumber, formatDate } from "@/lib/format";
 import { ASSET_TYPE_LABELS, type AssetType } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Plus } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -37,14 +38,23 @@ export default async function AssetsPage() {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="mb-7">
-        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-          <TrendingUp size={22} className="text-purple-400" />
-          Активы
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          {assets.length} активов · Стоимость: {formatCurrency(totalValue)}
-        </p>
+      <div className="flex items-center justify-between mb-7">
+        <div>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <TrendingUp size={22} className="text-purple-400" />
+            Активы
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            {assets.length} активов · Стоимость: {formatCurrency(totalValue)}
+          </p>
+        </div>
+        <Link
+          href="/assets/new"
+          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          <Plus size={15} />
+          Добавить
+        </Link>
       </div>
 
       {/* Сводка */}
@@ -107,9 +117,9 @@ export default async function AssetsPage() {
                   const share = vaultTotal > 0 ? (currentValue / vaultTotal) * 100 : 0;
 
                   return (
+                    <Link key={asset.id} href={`/assets/${asset.id}`} className="block">
                     <Card
-                      key={asset.id}
-                      className="hover:border-[hsl(216,34%,28%)] transition-colors"
+                      className="hover:border-[hsl(216,34%,28%)] transition-colors cursor-pointer"
                     >
                       <CardContent className="py-4">
                         <div className="flex items-center gap-4">
@@ -182,6 +192,7 @@ export default async function AssetsPage() {
                         </div>
                       </CardContent>
                     </Card>
+                    </Link>
                   );
                 })}
               </div>

@@ -1,9 +1,10 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/format";
 import { VAULT_TYPE_LABELS, LIQUIDITY_LABELS, RISK_LABELS, type VaultType, type LiquidityLevel, type RiskLevel } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Vault, TrendingUp, Layers } from "lucide-react";
+import { Vault, Layers, Plus } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,13 @@ export default async function VaultsPage() {
             {vaults.length} активных · Итого: {formatCurrency(totalBalance)}
           </p>
         </div>
+        <Link
+          href="/vaults/new"
+          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          <Plus size={15} />
+          Добавить
+        </Link>
       </div>
 
       {/* Сводка по типам */}
@@ -86,7 +94,8 @@ export default async function VaultsPage() {
         {vaults.map((vault) => {
           const share = totalBalance > 0 ? (vault.balance / totalBalance) * 100 : 0;
           return (
-            <Card key={vault.id} className="hover:border-[hsl(216,34%,28%)] transition-colors">
+            <Link key={vault.id} href={`/vaults/${vault.id}`} className="block">
+            <Card className="hover:border-[hsl(216,34%,28%)] transition-colors cursor-pointer">
               <CardContent>
                 <div className="flex items-start gap-4">
                   {/* Иконка */}
@@ -152,6 +161,7 @@ export default async function VaultsPage() {
                 </div>
               </CardContent>
             </Card>
+            </Link>
           );
         })}
 

@@ -1,9 +1,10 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { TRANSACTION_TYPE_LABELS } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeftRight } from "lucide-react";
+import { ArrowLeftRight, Plus } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -74,14 +75,23 @@ export default async function TransactionsPage() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       {/* Header */}
-      <div className="mb-7">
-        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-          <ArrowLeftRight size={22} className="text-cyan-400" />
-          Операции
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          {transactions.length} записей · последние 100
-        </p>
+      <div className="flex items-center justify-between mb-7">
+        <div>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <ArrowLeftRight size={22} className="text-cyan-400" />
+            Операции
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            {transactions.length} записей · последние 100
+          </p>
+        </div>
+        <Link
+          href="/transactions/new"
+          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          <Plus size={15} />
+          Добавить
+        </Link>
       </div>
 
       {/* Итоги месяца */}
@@ -152,9 +162,10 @@ export default async function TransactionsPage() {
               <Card>
                 <CardContent className="p-0">
                   <div className="divide-y divide-[hsl(216,34%,13%)]">
-                    {txs.map((tx, idx) => (
-                      <div
+                    {txs.map((tx) => (
+                      <Link
                         key={tx.id}
+                        href={`/transactions/${tx.id}/edit`}
                         className="flex items-center gap-3 px-4 py-3 hover:bg-[hsl(216,34%,10%)] transition-colors"
                       >
                         {/* Иконка */}
@@ -222,7 +233,7 @@ export default async function TransactionsPage() {
                             {typeLabels[tx.type as keyof typeof typeLabels]}
                           </Badge>
                         </div>
-                      </div>
+                      </Link>
                     ))}
                   </div>
                 </CardContent>
