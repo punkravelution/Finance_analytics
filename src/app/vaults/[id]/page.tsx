@@ -8,6 +8,9 @@ import {
   ArrowLeftRight,
   Pencil,
   ChevronLeft,
+  Link2,
+  ArrowUpRight,
+  ArrowDownLeft,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,10 +22,12 @@ import {
   RISK_LABELS,
   ASSET_TYPE_LABELS,
   TRANSACTION_TYPE_LABELS,
+  VAULT_RELATION_TYPE_LABELS,
   type VaultType,
   type LiquidityLevel,
   type RiskLevel,
   type AssetType,
+  type VaultRelationType,
 } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -81,6 +86,14 @@ export default async function VaultDetailPage({ params }: Props) {
         include: { category: true, fromVault: true },
         orderBy: { date: "desc" },
         take: 10,
+      },
+      relationsFrom: {
+        include: { toVault: true },
+        orderBy: { createdAt: "desc" },
+      },
+      relationsTo: {
+        include: { fromVault: true },
+        orderBy: { createdAt: "desc" },
       },
     },
   });
@@ -401,6 +414,106 @@ export default async function VaultDetailPage({ params }: Props) {
           </CardContent>
         </Card>
       )}
+
+      {/* Связанные хранилища */}
+      <Card className="mt-6">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Link2 size={14} />
+              Связанные хранилища
+            </CardTitle>
+            <Link
+              href={`/vaults/${id}/relations/new`}
+              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              + Добавить
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {vault.relationsFrom.length === 0 &&
+          vault.relationsTo.length === 0 ? (
+            <div className="text-center py-8 text-slate-600">
+              <Link2 size={28} className="mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Связей нет</p>
+              <Link
+                href={`/vaults/${id}/relations/new`}
+                className="mt-2 inline-block text-xs text-blue-400 hover:text-blue-300"
+              >
+                Добавить первую связь
+              </Link>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {vault.relationsFrom.map((rel) => (
+                <Link
+                  key={rel.id}
+                  href={`/vaults/${id}/relations/${rel.id}/edit`}
+                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-[hsl(216,34%,12%)] transition-colors group"
+                >
+                  <div className="w-7 h-7 rounded-md bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+                    <ArrowUpRight size={13} className="text-blue-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-slate-200 truncate">
+                      {rel.toVault.icon ?? "🏦"} {rel.toVault.name}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {
+                        VAULT_RELATION_TYPE_LABELS[
+                          rel.relationType as VaultRelationType
+                        ]
+                      }
+                      {rel.note ? ` · ${rel.note}` : ""}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-xs text-slate-500 tabular-nums">
+                      сила {rel.strength}
+                    </p>
+                    <p className="text-[11px] text-slate-600 group-hover:text-slate-400 transition-colors">
+                      исходящая
+                    </p>
+                  </div>
+                </Link>
+              ))}
+              {vault.relationsTo.map((rel) => (
+                <Link
+                  key={rel.id}
+                  href={`/vaults/${id}/relations/${rel.id}/edit`}
+                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-[hsl(216,34%,12%)] transition-colors group"
+                >
+                  <div className="w-7 h-7 rounded-md bg-purple-500/10 flex items-center justify-center flex-shrink-0">
+                    <ArrowDownLeft size={13} className="text-purple-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-slate-200 truncate">
+                      {rel.fromVault.icon ?? "🏦"} {rel.fromVault.name}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {
+                        VAULT_RELATION_TYPE_LABELS[
+                          rel.relationType as VaultRelationType
+                        ]
+                      }
+                      {rel.note ? ` · ${rel.note}` : ""}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-xs text-slate-500 tabular-nums">
+                      сила {rel.strength}
+                    </p>
+                    <p className="text-[11px] text-slate-600 group-hover:text-slate-400 transition-colors">
+                      входящая
+                    </p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

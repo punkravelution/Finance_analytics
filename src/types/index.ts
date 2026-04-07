@@ -90,6 +90,23 @@ export const INCOME_EVENT_TYPE_LABELS: Record<IncomeEventType, string> = {
   other: "Другое",
 };
 
+// ─── VaultRelation ────────────────────────────────────────────────────────────
+
+export type VaultRelationType =
+  | "funding"
+  | "withdrawal"
+  | "hedge"
+  | "collateral"
+  | "other";
+
+export const VAULT_RELATION_TYPE_LABELS: Record<VaultRelationType, string> = {
+  funding: "Финансирование",
+  withdrawal: "Вывод",
+  hedge: "Хедж",
+  collateral: "Залог",
+  other: "Другое",
+};
+
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export interface DashboardStats {
