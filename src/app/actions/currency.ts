@@ -1,7 +1,9 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { updateExchangeRates } from "@/lib/fetchRates";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 export interface CurrencyActionState {
@@ -15,6 +17,17 @@ export interface CurrencyActionState {
     toCurrency?: string;
     general?: string;
   };
+}
+
+export interface RatesUpdateActionState {
+  success?: boolean;
+  updated?: number;
+  error?: string;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
 }
 
 function parseCode(input: FormDataEntryValue | null): string {
@@ -132,4 +145,48 @@ export async function upsertExchangeRateAction(
   revalidatePath("/");
   revalidatePath("/analytics");
   return {};
+}
+
+export async function triggerRatesUpdate(): Promise<RatesUpdateActionState> {
+  const requestHeaders = await headers();
+  const hostHeader = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+  const protoHeader = requestHeaders.get("x-forwarded-proto") ?? "http";
+  const host = hostHeader?.split(",")[0]?.trim();
+  const protocol = protoHeader.split(",")[0]?.trim() || "http";
+
+  const applyRevalidate = () => {
+    revalidatePath("/currencies");
+    revalidatePath("/");
+    revalidatePath("/analytics");
+  };
+
+  if (host) {
+    try {
+      const response = await fetch(`${protocol}://${host}/api/update-rates`, {
+        method: "POST",
+        cache: "no-store",
+      });
+      const data = (await response.json()) as { ok?: boolean; updated?: number; error?: string };
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error ?? "ЦБ РФ временно недоступен. Попробуйте позже.");
+      }
+
+      applyRevalidate();
+      return { success: true, updated: data.updated ?? 0 };
+    } catch (error) {
+      console.error("[triggerRatesUpdate] endpoint call failed:", error);
+      // Fallback: если внутренний вызов endpoint не сработал из-за host/proxy,
+      // обновляем напрямую, чтобы кнопка продолжала работать.
+    }
+  }
+
+  try {
+    const updated = await updateExchangeRates();
+    applyRevalidate();
+    return { success: true, updated };
+  } catch (error) {
+    console.error("[triggerRatesUpdate] direct update failed:", error);
+    return { error: getErrorMessage(error, "ЦБ РФ временно недоступен. Попробуйте позже.") };
+  }
 }

@@ -173,6 +173,7 @@ model ExchangeRate {
   source       String   @default("manual")
   createdAt    DateTime @default(now())
 
+  @@unique([fromCurrency, toCurrency, date])
   @@index([fromCurrency, toCurrency, date])
 }
 
