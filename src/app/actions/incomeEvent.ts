@@ -54,6 +54,46 @@ export async function createIncomeEvent(
   return { success: true };
 }
 
+export async function updateIncomeEvent(
+  assetId: string,
+  eventId: string,
+  _prev: IncomeEventActionState,
+  formData: FormData
+): Promise<IncomeEventActionState> {
+  const dateStr = formData.get("date")?.toString() ?? "";
+  const amountStr = formData.get("amount")?.toString() ?? "";
+  const incomeType = formData.get("incomeType")?.toString() ?? "";
+  const currency = formData.get("currency")?.toString().trim() || "RUB";
+  const noteRaw = formData.get("note")?.toString().trim() || null;
+
+  const errors: NonNullable<IncomeEventActionState["errors"]> = {};
+  if (!dateStr) errors.date = "Укажите дату";
+  const amount = parseFloat(amountStr);
+  if (!amountStr || isNaN(amount) || amount <= 0)
+    errors.amount = "Укажите сумму больше нуля";
+  if (!incomeType) errors.incomeType = "Выберите тип дохода";
+
+  if (Object.keys(errors).length > 0) return { errors };
+
+  try {
+    await prisma.incomeEvent.update({
+      where: { id: eventId },
+      data: {
+        date: new Date(dateStr),
+        amount,
+        currency,
+        incomeType,
+        note: noteRaw,
+      },
+    });
+  } catch {
+    return { errors: { general: "Ошибка сохранения. Попробуйте ещё раз." } };
+  }
+
+  revalidatePath(`/assets/${assetId}`);
+  return { success: true };
+}
+
 export async function deleteIncomeEvent(
   assetId: string,
   eventId: string

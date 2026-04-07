@@ -67,6 +67,72 @@ export async function createValuation(
   return { success: true };
 }
 
+export async function updateValuation(
+  assetId: string,
+  valuationId: string,
+  _prev: ValuationActionState,
+  formData: FormData
+): Promise<ValuationActionState> {
+  const dateStr = formData.get("date")?.toString() ?? "";
+  const unitPriceStr = formData.get("unitPrice")?.toString() ?? "";
+  const notesRaw = formData.get("notes")?.toString().trim() || null;
+
+  const errors: NonNullable<ValuationActionState["errors"]> = {};
+  if (!dateStr) errors.date = "Укажите дату";
+  const unitPrice = parseFloat(unitPriceStr);
+  if (!unitPriceStr || isNaN(unitPrice) || unitPrice <= 0)
+    errors.unitPrice = "Укажите корректную цену за единицу (> 0)";
+
+  if (Object.keys(errors).length > 0) return { errors };
+
+  try {
+    const asset = await prisma.asset.findUnique({
+      where: { id: assetId },
+      select: { quantity: true },
+    });
+    if (!asset) return { errors: { general: "Актив не найден" } };
+
+    const totalValue = unitPrice * asset.quantity;
+
+    // Проверяем, является ли эта оценка самой свежей
+    const latest = await prisma.assetValuation.findFirst({
+      where: { assetId },
+      orderBy: { date: "desc" },
+      select: { id: true },
+    });
+
+    await prisma.$transaction([
+      prisma.assetValuation.update({
+        where: { id: valuationId },
+        data: {
+          date: new Date(dateStr),
+          unitPrice,
+          totalValue,
+          notes: notesRaw,
+        },
+      }),
+      // Обновляем текущую цену актива только если это последняя оценка
+      ...(latest?.id === valuationId
+        ? [
+            prisma.asset.update({
+              where: { id: assetId },
+              data: {
+                currentUnitPrice: unitPrice,
+                currentTotalValue: totalValue,
+                lastUpdatedAt: new Date(),
+              },
+            }),
+          ]
+        : []),
+    ]);
+  } catch {
+    return { errors: { general: "Ошибка сохранения. Попробуйте ещё раз." } };
+  }
+
+  revalidatePath(`/assets/${assetId}`);
+  return { success: true };
+}
+
 export async function deleteValuation(
   assetId: string,
   valuationId: string

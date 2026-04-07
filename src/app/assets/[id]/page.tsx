@@ -9,7 +9,6 @@ import {
   Pencil,
   Clock,
   Coins,
-  Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,16 +16,14 @@ import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatDate, formatNumber, formatPercent } from "@/lib/format";
 import {
   ASSET_TYPE_LABELS,
-  INCOME_EVENT_TYPE_LABELS,
   VAULT_TYPE_LABELS,
   type AssetType,
-  type IncomeEventType,
   type VaultType,
 } from "@/types";
 import { AddValuationForm } from "@/components/assets/AddValuationForm";
 import { AddIncomeEventForm } from "@/components/assets/AddIncomeEventForm";
-import { deleteValuation } from "@/app/actions/valuation";
-import { deleteIncomeEvent } from "@/app/actions/incomeEvent";
+import { ValuationRow } from "@/components/assets/ValuationRow";
+import { IncomeEventRow } from "@/components/assets/IncomeEventRow";
 
 export const dynamic = "force-dynamic";
 
@@ -271,41 +268,14 @@ export default async function AssetDetailPage({ params }: Props) {
               </p>
             </div>
           ) : (
-            <div className="space-y-0">
+            <div>
               {asset.valuations.map((v) => (
-                <div
+                <ValuationRow
                   key={v.id}
-                  className="flex items-center justify-between py-2.5 px-1 border-b border-[hsl(216,34%,13%)] last:border-0 group"
-                >
-                  <div>
-                    <span className="text-sm text-slate-400">
-                      {formatDate(v.date)}
-                    </span>
-                    {v.notes && (
-                      <p className="text-xs text-slate-600 mt-0.5">{v.notes}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-slate-300 tabular-nums">
-                      {formatCurrency(v.unitPrice, asset.currency)} / ед. ·{" "}
-                      <span className="text-white font-medium">
-                        {formatCurrency(v.totalValue, asset.currency)}
-                      </span>
-                    </span>
-                    <form
-                      action={deleteValuation.bind(null, id, v.id)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <button
-                        type="submit"
-                        title="Удалить"
-                        className="text-slate-600 hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </form>
-                  </div>
-                </div>
+                  assetId={id}
+                  valuation={v}
+                  currency={asset.currency}
+                />
               ))}
             </div>
           )}
@@ -337,40 +307,13 @@ export default async function AssetDetailPage({ params }: Props) {
               </p>
             </div>
           ) : (
-            <div className="space-y-0">
+            <div>
               {asset.incomeEvents.map((e) => (
-                <div
+                <IncomeEventRow
                   key={e.id}
-                  className="flex items-center justify-between py-2.5 px-1 border-b border-[hsl(216,34%,13%)] last:border-0 group"
-                >
-                  <div>
-                    <span className="text-sm text-slate-300">
-                      {INCOME_EVENT_TYPE_LABELS[e.incomeType as IncomeEventType] ??
-                        e.incomeType}
-                    </span>
-                    {e.note && (
-                      <p className="text-xs text-slate-600 mt-0.5">{e.note}</p>
-                    )}
-                    <p className="text-xs text-slate-600">{formatDate(e.date)}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-medium text-green-400 tabular-nums">
-                      +{formatCurrency(e.amount, e.currency)}
-                    </span>
-                    <form
-                      action={deleteIncomeEvent.bind(null, id, e.id)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <button
-                        type="submit"
-                        title="Удалить"
-                        className="text-slate-600 hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </form>
-                  </div>
-                </div>
+                  assetId={id}
+                  event={e}
+                />
               ))}
             </div>
           )}
