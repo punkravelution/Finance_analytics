@@ -109,8 +109,14 @@ export interface VaultSummary {
   id: string;
   name: string;
   type: VaultType;
+  /** Нативная валюта хранилища (vault.currency) */
   currency: string;
+  /** Баланс в валюте balanceCurrency (из последнего снимка или суммы активов) */
   balance: number;
+  /** Валюта, в которой хранится значение balance (snapshot.currency ?? vault.currency) */
+  balanceCurrency: string;
+  /** Баланс, конвертированный в базовую валюту приложения */
+  balanceInBaseCurrency: number;
   liquidityLevel: LiquidityLevel;
   riskLevel: RiskLevel;
   color?: string | null;

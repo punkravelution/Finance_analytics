@@ -156,3 +156,27 @@ model VaultSnapshot {
 
   vault     Vault    @relation(fields: [vaultId], references: [id], onDelete: Cascade)
 }
+
+// ─── Курсы валют ──────────────────────────────────────────────────────────────
+
+model ExchangeRate {
+  id           String   @id @default(cuid())
+  fromCurrency String
+  toCurrency   String
+  rate         Float
+  date         DateTime @default(now())
+  source       String   @default("manual")
+  createdAt    DateTime @default(now())
+
+  @@index([fromCurrency, toCurrency, date])
+}
+
+// ─── Настройки приложения (key-value) ────────────────────────────────────────
+
+model AppSettings {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

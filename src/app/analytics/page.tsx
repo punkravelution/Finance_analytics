@@ -4,10 +4,16 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { BarChart2 } from "lucide-react";
 import { MonthlyChart } from "@/components/analytics/MonthlyChart";
 import { CategoryBreakdown } from "@/components/analytics/CategoryBreakdown";
+import { getExchangeRates, getBaseCurrency, convertAmount } from "@/lib/currency";
 
 export const dynamic = "force-dynamic";
 
 async function getMonthlyData() {
+  const [baseCurrency, rates] = await Promise.all([
+    getBaseCurrency(),
+    getExchangeRates(),
+  ]);
+
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
   sixMonthsAgo.setDate(1);
@@ -17,6 +23,7 @@ async function getMonthlyData() {
       date: { gte: sixMonthsAgo },
       type: { in: ["income", "expense"] },
     },
+    select: { date: true, type: true, amount: true, currency: true },
     orderBy: { date: "asc" },
   });
 
@@ -25,8 +32,9 @@ async function getMonthlyData() {
   for (const tx of transactions) {
     const key = `${tx.date.getFullYear()}-${String(tx.date.getMonth() + 1).padStart(2, "0")}`;
     const existing = grouped.get(key) ?? { income: 0, expense: 0 };
-    if (tx.type === "income") existing.income += tx.amount;
-    else existing.expense += tx.amount;
+    const amountInBase = convertAmount(tx.amount, tx.currency, baseCurrency, rates);
+    if (tx.type === "income") existing.income += amountInBase;
+    else existing.expense += amountInBase;
     grouped.set(key, existing);
   }
 
@@ -43,43 +51,57 @@ async function getMonthlyData() {
 }
 
 async function getCategoryExpenses() {
+  const [baseCurrency, rates] = await Promise.all([
+    getBaseCurrency(),
+    getExchangeRates(),
+  ]);
+
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
 
-  const result = await prisma.transaction.groupBy({
-    by: ["categoryId"],
+  // groupBy не позволяет получить currency, поэтому берём строки явно
+  const transactions = await prisma.transaction.findMany({
     where: {
       type: "expense",
       date: { gte: start },
       categoryId: { not: null },
     },
-    _sum: { amount: true },
-    orderBy: { _sum: { amount: "desc" } },
+    select: { categoryId: true, amount: true, currency: true },
   });
 
+  const byCategory = new Map<string, number>();
+  for (const tx of transactions) {
+    const cid = tx.categoryId!;
+    const prev = byCategory.get(cid) ?? 0;
+    byCategory.set(cid, prev + convertAmount(tx.amount, tx.currency, baseCurrency, rates));
+  }
+
   const categories = await prisma.category.findMany({
-    where: { id: { in: result.map((r) => r.categoryId!).filter(Boolean) } },
+    where: { id: { in: Array.from(byCategory.keys()) } },
   });
 
   const catMap = new Map(categories.map((c) => [c.id, c]));
-  const total = result.reduce((s, r) => s + (r._sum.amount ?? 0), 0);
+  const total = Array.from(byCategory.values()).reduce((s, v) => s + v, 0);
 
-  return result.map((r) => {
-    const cat = catMap.get(r.categoryId!);
-    return {
-      name: cat?.name ?? "Без категории",
-      amount: r._sum.amount ?? 0,
-      color: cat?.color ?? "#6b7280",
-      icon: cat?.icon ?? "📌",
-      pct: total > 0 ? ((r._sum.amount ?? 0) / total) * 100 : 0,
-    };
-  });
+  return Array.from(byCategory.entries())
+    .sort(([, a], [, b]) => b - a)
+    .map(([cid, amount]) => {
+      const cat = catMap.get(cid);
+      return {
+        name: cat?.name ?? "Без категории",
+        amount,
+        color: cat?.color ?? "#6b7280",
+        icon: cat?.icon ?? "📌",
+        pct: total > 0 ? (amount / total) * 100 : 0,
+      };
+    });
 }
 
 export default async function AnalyticsPage() {
-  const [monthlyData, categoryExpenses] = await Promise.all([
+  const [monthlyData, categoryExpenses, baseCurrency] = await Promise.all([
     getMonthlyData(),
     getCategoryExpenses(),
+    getBaseCurrency(),
   ]);
 
   const avgIncome =
@@ -98,7 +120,10 @@ export default async function AnalyticsPage() {
           <BarChart2 size={22} className="text-yellow-400" />
           Аналитика
         </h1>
-        <p className="text-sm text-slate-500 mt-1">Анализ доходов, расходов и накоплений</p>
+        <p className="text-sm text-slate-500 mt-1">
+          Анализ доходов, расходов и накоплений · все суммы в{" "}
+          <span className="text-slate-400 font-medium">{baseCurrency}</span>
+        </p>
       </div>
 
       {/* Средние показатели */}

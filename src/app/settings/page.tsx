@@ -1,7 +1,13 @@
-import { Settings, Database, Info } from "lucide-react";
+import { Settings, Database, Info, Globe } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getBaseCurrency, SUPPORTED_CURRENCIES } from "@/lib/currency";
+import { BaseCurrencyForm } from "@/components/settings/BaseCurrencyForm";
 
-export default function SettingsPage() {
+export const dynamic = "force-dynamic";
+
+export default async function SettingsPage() {
+  const baseCurrency = await getBaseCurrency();
+
   return (
     <div className="p-6 max-w-2xl mx-auto">
       <div className="mb-7">
@@ -13,6 +19,27 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-4">
+        {/* Базовая валюта */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Globe size={15} />
+              Базовая валюта
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-slate-400 mb-4">
+              Все итоговые показатели на главной и в аналитике пересчитываются в
+              базовую валюту. Исходные данные не изменяются.
+            </p>
+            <BaseCurrencyForm
+              currentCurrency={baseCurrency}
+              supportedCurrencies={[...SUPPORTED_CURRENCIES]}
+            />
+          </CardContent>
+        </Card>
+
+        {/* База данных */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -41,6 +68,7 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* О приложении */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

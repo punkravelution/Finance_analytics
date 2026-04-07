@@ -16,7 +16,8 @@ const liquidityVariant: Record<string, "success" | "warning" | "danger" | "defau
 };
 
 export function VaultsList({ vaults }: VaultsListProps) {
-  const totalBalance = vaults.reduce((sum, v) => sum + v.balance, 0);
+  // Общая сумма в базовой валюте (balanceInBaseCurrency уже нормализована)
+  const totalBalance = vaults.reduce((sum, v) => sum + v.balanceInBaseCurrency, 0);
 
   return (
     <Card>
@@ -69,8 +70,13 @@ export function VaultsList({ vaults }: VaultsListProps) {
 
                 <div className="text-right flex-shrink-0">
                   <p className="text-sm font-semibold tabular-nums">
-                    {formatCurrency(vault.balance, vault.currency)}
+                    {formatCurrency(vault.balance, vault.balanceCurrency)}
                   </p>
+                  {vault.balanceCurrency !== vault.currency && (
+                    <p className="text-[10px] text-slate-500 tabular-nums">
+                      {vault.currency}
+                    </p>
+                  )}
                   <Badge variant={liquidityVariant[vault.liquidityLevel]} className="mt-0.5">
                     {LIQUIDITY_LABELS[vault.liquidityLevel]}
                   </Badge>

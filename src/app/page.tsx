@@ -1,24 +1,27 @@
 import {
-  Wallet,
-  Banknote,
   TrendingUp,
   TrendingDown,
   PiggyBank,
   BarChart2,
-  AlertTriangle,
 } from "lucide-react";
 import { getDashboardStats, getVaultSummaries, getRecentTransactions } from "@/lib/analytics";
-import { formatCurrency, formatPercent, formatDate } from "@/lib/format";
+import { formatCurrency, formatPercent } from "@/lib/format";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { VaultsList } from "@/components/dashboard/VaultsList";
 import { RecentTransactions } from "@/components/dashboard/RecentTransactions";
 import { CapitalChart } from "@/components/dashboard/CapitalChart";
 import { AllocationChart } from "@/components/dashboard/AllocationChart";
 import { prisma } from "@/lib/prisma";
+import { getExchangeRates, getBaseCurrency, convertAmount } from "@/lib/currency";
 
 export const dynamic = "force-dynamic";
 
 async function getCapitalChartData() {
+  const [baseCurrency, rates] = await Promise.all([
+    getBaseCurrency(),
+    getExchangeRates(),
+  ]);
+
   const snapshots = await prisma.vaultSnapshot.findMany({
     where: {
       vault: { isActive: true, includeInNetWorth: true },
@@ -29,7 +32,8 @@ async function getCapitalChartData() {
   const grouped = new Map<string, number>();
   for (const snap of snapshots) {
     const dateKey = snap.date.toISOString().split("T")[0];
-    grouped.set(dateKey, (grouped.get(dateKey) ?? 0) + snap.balance);
+    const valueInBase = convertAmount(snap.balance, snap.currency, baseCurrency, rates);
+    grouped.set(dateKey, (grouped.get(dateKey) ?? 0) + valueInBase);
   }
 
   return Array.from(grouped.entries()).map(([date, value]) => ({
@@ -63,7 +67,7 @@ export default async function HomePage() {
       <div className="mb-5">
         <div className="rounded-xl border border-[hsl(216,34%,17%)] bg-gradient-to-br from-blue-600/10 via-[hsl(222,47%,9%)] to-[hsl(222,47%,8%)] p-6">
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
-            Общий капитал
+            Общий капитал · {stats.currency}
           </p>
           <div className="flex items-end gap-4 flex-wrap">
             <p className="text-4xl font-bold tabular-nums text-white">

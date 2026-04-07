@@ -388,6 +388,44 @@ async function main() {
   });
 
   console.log("✓ Созданы доходные события");
+
+  // ─── Курсы валют ────────────────────────────────────────────────────────────
+  const rateDate = new Date();
+
+  const exchangeRates = [
+    // RUB → RUB (явно, для полноты)
+    { fromCurrency: "RUB", toCurrency: "RUB", rate: 1 },
+    // USD → RUB
+    { fromCurrency: "USD", toCurrency: "RUB", rate: 90.5 },
+    // EUR → RUB
+    { fromCurrency: "EUR", toCurrency: "RUB", rate: 98.2 },
+    // RUB → USD (обратный, для удобства)
+    { fromCurrency: "RUB", toCurrency: "USD", rate: 1 / 90.5 },
+  ];
+
+  for (const r of exchangeRates) {
+    await prisma.exchangeRate.create({
+      data: {
+        fromCurrency: r.fromCurrency,
+        toCurrency: r.toCurrency,
+        rate: r.rate,
+        date: rateDate,
+        source: "seed",
+      },
+    });
+  }
+
+  console.log(`✓ Создано курсов валют: ${exchangeRates.length}`);
+
+  // ─── Настройки приложения ───────────────────────────────────────────────────
+  await prisma.appSettings.upsert({
+    where: { key: "baseCurrency" },
+    update: { value: "RUB" },
+    create: { key: "baseCurrency", value: "RUB" },
+  });
+
+  console.log("✓ Базовая валюта установлена: RUB");
+
   console.log("\n🎉 База данных заполнена успешно!");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log(`Общий капитал (approx): ${(145000 + 87500 + 12000 + 320000 + 95000 + 500000 + 18000).toLocaleString("ru-RU")} ₽`);
