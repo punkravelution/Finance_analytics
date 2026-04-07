@@ -105,9 +105,13 @@ export function AssetForm({
   const [steamOptions, setSteamOptions] = useState<SteamSearchResult[]>([]);
   const [searchingSteam, setSearchingSteam] = useState(false);
   const [updatingSteamPrice, setUpdatingSteamPrice] = useState(false);
+  const [updatingMoexPrice, setUpdatingMoexPrice] = useState(false);
+  const [moexError, setMoexError] = useState("");
   const [steamRubUnitPrice, setSteamRubUnitPrice] = useState<number | null>(null);
   const isSteamItem = assetType === "item";
+  const isStock = assetType === "stock";
   const canRefreshSteamPrice = isSteamItem && steamMarketHashName.length > 0;
+  const canRefreshMoexPrice = isStock && ticker.trim().length > 0;
 
   useEffect(() => {
     if (!isSteamItem) {
@@ -116,6 +120,10 @@ export function AssetForm({
       setSteamRubUnitPrice(null);
     }
   }, [isSteamItem]);
+
+  useEffect(() => {
+    if (!isStock) setMoexError("");
+  }, [isStock]);
 
   useEffect(() => {
     if (!isSteamItem || !defaultValues.steamMarketHashName) return;
@@ -229,6 +237,37 @@ export function AssetForm({
 
       setCurrency(parsed.currency);
       setCurrentUnitPrice(String(parsed.value));
+    }
+  }
+
+  async function updateMoexPriceByTicker() {
+    const code = ticker.trim().toUpperCase();
+    if (!code) return;
+
+    setUpdatingMoexPrice(true);
+    setMoexError("");
+    try {
+      const response = await fetch(`/api/moex-price?ticker=${encodeURIComponent(code)}`, {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        const json = (await response.json()) as { error?: string };
+        setMoexError(json.error ?? "Тикер не найден");
+        return;
+      }
+
+      const json = (await response.json()) as { price?: number };
+      if (typeof json.price === "number" && Number.isFinite(json.price) && json.price > 0) {
+        setCurrentUnitPrice(String(json.price));
+        setCurrency("RUB");
+      } else {
+        setMoexError("Тикер не найден");
+      }
+    } catch {
+      setMoexError("Не удалось получить цену с MOEX");
+    } finally {
+      setUpdatingMoexPrice(false);
     }
   }
 
@@ -444,6 +483,17 @@ export function AssetForm({
               {updatingSteamPrice ? "Обновляем цену..." : "Обновить цену"}
             </button>
           )}
+          {canRefreshMoexPrice && (
+            <button
+              type="button"
+              onClick={() => void updateMoexPriceByTicker()}
+              disabled={updatingMoexPrice}
+              className="mt-2 block text-xs text-emerald-400 hover:text-emerald-300 disabled:opacity-50 transition-colors"
+            >
+              {updatingMoexPrice ? "Получаем цену..." : "Получить цену с MOEX"}
+            </button>
+          )}
+          {moexError && <p className="mt-1 text-xs text-red-400">{moexError}</p>}
         </div>
       </div>
 

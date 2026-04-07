@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { updateMoexPrices as updateMoexPricesLib, type MoexUpdateResult } from "@/lib/fetchMoexPrices";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -29,8 +30,39 @@ export interface UpdateSteamPricesResult {
   failed: number;
 }
 
+export type UpdateMoexPricesResult = MoexUpdateResult;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchMoexPriceByTicker(ticker: string): Promise<number | null> {
+  const code = ticker.trim().toUpperCase();
+  if (!code) return null;
+
+  const marketUrl =
+    `https://iss.moex.com/iss/engines/stock/markets/shares/securities/${code}.json` +
+    "?iss.meta=off&iss.only=marketdata&marketdata.columns=SECID,LAST";
+  const marketRes = await fetch(marketUrl, { cache: "no-store" });
+  if (!marketRes.ok) return null;
+  const marketJson = (await marketRes.json()) as {
+    marketdata?: { data?: Array<[string, number | null]> };
+  };
+  const last = marketJson.marketdata?.data?.[0]?.[1] ?? null;
+  if (last != null && Number.isFinite(last) && last > 0) return last;
+
+  const prevUrl =
+    `https://iss.moex.com/iss/engines/stock/markets/shares/securities/${code}.json` +
+    "?iss.meta=off&iss.only=securities&securities.columns=SECID,PREVPRICE";
+  const prevRes = await fetch(prevUrl, { cache: "no-store" });
+  if (!prevRes.ok) return null;
+  const prevJson = (await prevRes.json()) as {
+    securities?: { data?: Array<[string, number | null]> };
+  };
+  const prev = prevJson.securities?.data?.[0]?.[1] ?? null;
+  if (prev != null && Number.isFinite(prev) && prev > 0) return prev;
+
+  return null;
 }
 
 function parseAssetFormData(formData: FormData) {
@@ -96,6 +128,20 @@ export async function createAsset(
   const currencyError = await validateAssetCurrency(data.currency);
   if (currencyError) errors.currency = currencyError;
   if (Object.keys(errors).length > 0) return { errors };
+
+  if (data.assetType === "stock" && data.ticker && data.currentUnitPrice == null) {
+    try {
+      const moexPrice = await fetchMoexPriceByTicker(data.ticker);
+      if (moexPrice != null) {
+        data.currentUnitPrice = moexPrice;
+        data.currentTotalValue = moexPrice * data.quantity;
+        data.currency = "RUB";
+        data.lastUpdatedAt = new Date();
+      }
+    } catch {
+      // Если MOEX временно недоступен, не блокируем создание актива.
+    }
+  }
 
   try {
     await prisma.asset.create({ data });
@@ -334,4 +380,24 @@ export async function updateSteamPrices(
   revalidatePath("/vaults");
 
   return { updated, failed };
+}
+
+export async function updateMoexPrices(
+  _prev?: UpdateMoexPricesResult
+): Promise<UpdateMoexPricesResult> {
+  void _prev;
+  const requestHeaders = await headers();
+  const hostHeader = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+  const protoHeader = requestHeaders.get("x-forwarded-proto") ?? "http";
+  const host = hostHeader?.split(",")[0]?.trim();
+  const protocol = protoHeader.split(",")[0]?.trim() || "http";
+
+  if (!host) {
+    return { updated: 0, failed: 0, errors: ["Не удалось определить адрес сервера"] };
+  }
+
+  const result = await updateMoexPricesLib(`${protocol}://${host}`);
+  revalidatePath("/assets");
+  revalidatePath("/");
+  return result;
 }

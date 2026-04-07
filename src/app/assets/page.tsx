@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, Plus } from "lucide-react";
 import { UpdateSteamPricesForm } from "@/components/assets/UpdateSteamPricesForm";
+import { UpdateMoexPricesForm } from "@/components/assets/UpdateMoexPricesForm";
 
 export const dynamic = "force-dynamic";
 
@@ -110,6 +111,7 @@ export default async function AssetsPage() {
                   </span>
                 </div>
                 {vault.type === "steam" && <UpdateSteamPricesForm />}
+                {vault.type === "steam" && <UpdateMoexPricesForm />}
               </div>
 
               <div className="space-y-2">
