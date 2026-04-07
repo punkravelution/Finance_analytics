@@ -16,6 +16,12 @@ export interface CurrencyDirectoryItem {
   symbol: string;
 }
 
+function sourcePriority(source: string): number {
+  if (source === "cbr" || source === "coingecko") return 2;
+  if (source === "manual") return 1;
+  return 0;
+}
+
 /**
  * Загружает последние курсы из БД и возвращает их в виде карты.
  * Для каждой пары (from, to) приоритет у источника ЦБ РФ (source="cbr"),
@@ -28,24 +34,38 @@ export async function getExchangeRates(): Promise<ExchangeRateMap> {
   });
 
   const map: ExchangeRateMap = {};
-  const chosenSourceByPair = new Map<string, string>();
+  const chosenByPair = new Map<string, { source: string; date: Date; createdAt: Date }>();
 
   for (const row of rows) {
     if (!map[row.fromCurrency]) map[row.fromCurrency] = {};
 
     const pairKey = `${row.fromCurrency}-${row.toCurrency}`;
-    const existingSource = chosenSourceByPair.get(pairKey);
+    const existing = chosenByPair.get(pairKey);
 
-    if (!existingSource) {
+    if (!existing) {
       map[row.fromCurrency][row.toCurrency] = row.rate;
-      chosenSourceByPair.set(pairKey, row.source);
+      chosenByPair.set(pairKey, {
+        source: row.source,
+        date: row.date,
+        createdAt: row.createdAt,
+      });
       continue;
     }
 
-    // Если уже выбрали не-CBR источник, а текущая запись из CBR — переопределяем.
-    if (existingSource !== "cbr" && row.source === "cbr") {
+    const currentPriority = sourcePriority(row.source);
+    const existingPriority = sourcePriority(existing.source);
+    const isNewer =
+      row.date.getTime() > existing.date.getTime() ||
+      (row.date.getTime() === existing.date.getTime() &&
+        row.createdAt.getTime() > existing.createdAt.getTime());
+
+    if (currentPriority > existingPriority || (currentPriority === existingPriority && isNewer)) {
       map[row.fromCurrency][row.toCurrency] = row.rate;
-      chosenSourceByPair.set(pairKey, row.source);
+      chosenByPair.set(pairKey, {
+        source: row.source,
+        date: row.date,
+        createdAt: row.createdAt,
+      });
     }
   }
 

@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { updateExchangeRates } from "@/lib/fetchRates";
+import { updateCryptoRates } from "@/lib/fetchCryptoRates";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -188,5 +189,47 @@ export async function triggerRatesUpdate(): Promise<RatesUpdateActionState> {
   } catch (error) {
     console.error("[triggerRatesUpdate] direct update failed:", error);
     return { error: getErrorMessage(error, "ЦБ РФ временно недоступен. Попробуйте позже.") };
+  }
+}
+
+export async function triggerCryptoRatesUpdate(): Promise<RatesUpdateActionState> {
+  const requestHeaders = await headers();
+  const hostHeader = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+  const protoHeader = requestHeaders.get("x-forwarded-proto") ?? "http";
+  const host = hostHeader?.split(",")[0]?.trim();
+  const protocol = protoHeader.split(",")[0]?.trim() || "http";
+
+  const applyRevalidate = () => {
+    revalidatePath("/currencies");
+    revalidatePath("/");
+    revalidatePath("/analytics");
+  };
+
+  if (host) {
+    try {
+      const response = await fetch(`${protocol}://${host}/api/update-crypto-rates`, {
+        method: "POST",
+        cache: "no-store",
+      });
+      const data = (await response.json()) as { ok?: boolean; updated?: number; error?: string };
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error ?? "CoinGecko временно недоступен. Попробуйте позже.");
+      }
+
+      applyRevalidate();
+      return { success: true, updated: data.updated ?? 0 };
+    } catch (error) {
+      console.error("[triggerCryptoRatesUpdate] endpoint call failed:", error);
+    }
+  }
+
+  try {
+    const updated = await updateCryptoRates();
+    applyRevalidate();
+    return { success: true, updated };
+  } catch (error) {
+    console.error("[triggerCryptoRatesUpdate] direct update failed:", error);
+    return { error: getErrorMessage(error, "CoinGecko временно недоступен. Попробуйте позже.") };
   }
 }

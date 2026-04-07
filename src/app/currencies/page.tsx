@@ -5,11 +5,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CurrencyCreateForm } from "@/components/currencies/CurrencyCreateForm";
 import { ExchangeRateUpsertForm } from "@/components/currencies/ExchangeRateUpsertForm";
 import { CbrRatesUpdateForm } from "@/components/currencies/CbrRatesUpdateForm";
+import { CryptoRatesUpdateForm } from "@/components/currencies/CryptoRatesUpdateForm";
 
 export const dynamic = "force-dynamic";
 
+function sourcePriority(source: string): number {
+  if (source === "cbr" || source === "coingecko") return 2;
+  if (source === "manual") return 1;
+  return 0;
+}
+
 export default async function CurrenciesPage() {
-  const [currencies, rates, lastCbrRate, usedVaultCurrencies, usedAssetCurrencies, usedTransactionCurrencies, usedIncomeCurrencies, usedSubscriptionCurrencies, usedLiabilityCurrencies] = await Promise.all([
+  const [currencies, rates, lastCbrRate, lastCoinGeckoRate, usedVaultCurrencies, usedAssetCurrencies, usedTransactionCurrencies, usedIncomeCurrencies, usedSubscriptionCurrencies, usedLiabilityCurrencies] = await Promise.all([
     prisma.currency.findMany({
       orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
     }),
@@ -18,6 +25,11 @@ export default async function CurrenciesPage() {
     }),
     prisma.exchangeRate.findFirst({
       where: { source: "cbr" },
+      orderBy: { date: "desc" },
+      select: { date: true },
+    }),
+    prisma.exchangeRate.findFirst({
+      where: { source: "coingecko" },
       orderBy: { date: "desc" },
       select: { date: true },
     }),
@@ -56,8 +68,14 @@ export default async function CurrenciesPage() {
       continue;
     }
 
-    // В UI показываем курс ЦБ приоритетно, если он есть для пары.
-    if (existing.source !== "cbr" && r.source === "cbr") {
+    const currentPriority = sourcePriority(r.source);
+    const existingPriority = sourcePriority(existing.source);
+    const isNewer =
+      r.date.getTime() > existing.date.getTime() ||
+      (r.date.getTime() === existing.date.getTime() &&
+        r.createdAt.getTime() > existing.createdAt.getTime());
+
+    if (currentPriority > existingPriority || (currentPriority === existingPriority && isNewer)) {
       latestByPair.set(key, r);
     }
   }
@@ -85,6 +103,12 @@ export default async function CurrenciesPage() {
         dateStyle: "medium",
         timeStyle: "short",
       }).format(lastCbrRate.date)
+    : "ещё не обновлялось";
+  const lastCryptoUpdatedLabel = lastCoinGeckoRate
+    ? new Intl.DateTimeFormat("ru-RU", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(lastCoinGeckoRate.date)
     : "ещё не обновлялось";
 
   return (
@@ -145,6 +169,7 @@ export default async function CurrenciesPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <CbrRatesUpdateForm lastUpdatedLabel={lastUpdatedLabel} />
+          <CryptoRatesUpdateForm lastUpdatedLabel={lastCryptoUpdatedLabel} />
           <ExchangeRateUpsertForm
             currencies={currencies.map((c) => ({ code: c.code, name: c.name }))}
           />
