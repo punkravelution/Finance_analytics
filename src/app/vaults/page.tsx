@@ -5,10 +5,16 @@ import { VAULT_TYPE_LABELS, LIQUIDITY_LABELS, RISK_LABELS, type VaultType, type 
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Vault, Layers, Plus } from "lucide-react";
+import { getExchangeRates, getBaseCurrency, convertAmount } from "@/lib/currency";
 
 export const dynamic = "force-dynamic";
 
 async function getVaults() {
+  const [baseCurrency, rates] = await Promise.all([
+    getBaseCurrency(),
+    getExchangeRates(),
+  ]);
+
   const vaults = await prisma.vault.findMany({
     where: { isActive: true },
     include: {
@@ -21,10 +27,12 @@ async function getVaults() {
 
   return vaults.map((v) => {
     const lastSnapshot = v.snapshots[0];
+    const balanceCurrency = lastSnapshot?.currency ?? v.currency;
     const balance = lastSnapshot
       ? lastSnapshot.balance
       : v.assets.reduce((s, a) => s + (a.currentTotalValue ?? 0), 0);
-    return { ...v, balance };
+    const balanceInBaseCurrency = convertAmount(balance, balanceCurrency, baseCurrency, rates);
+    return { ...v, balance, balanceCurrency, balanceInBaseCurrency, baseCurrency };
   });
 }
 
@@ -45,10 +53,11 @@ const riskVariant: Record<string, "success" | "warning" | "danger" | "default" |
 
 export default async function VaultsPage() {
   const vaults = await getVaults();
-  const totalBalance = vaults.reduce((sum, v) => sum + (v.includeInNetWorth ? v.balance : 0), 0);
+  const baseCurrency = vaults[0]?.baseCurrency ?? "RUB";
+  const totalBalance = vaults.reduce((sum, v) => sum + (v.includeInNetWorth ? v.balanceInBaseCurrency : 0), 0);
 
   const byType = vaults.reduce<Record<string, number>>((acc, v) => {
-    acc[v.type] = (acc[v.type] ?? 0) + v.balance;
+    acc[v.type] = (acc[v.type] ?? 0) + v.balanceInBaseCurrency;
     return acc;
   }, {});
 
@@ -62,7 +71,7 @@ export default async function VaultsPage() {
             Хранилища
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            {vaults.length} активных · Итого: {formatCurrency(totalBalance)}
+            {vaults.length} активных · Итого: {formatCurrency(totalBalance, baseCurrency)}
           </p>
         </div>
         <Link
@@ -84,7 +93,7 @@ export default async function VaultsPage() {
             <p className="text-xs text-slate-500 mb-1">
               {VAULT_TYPE_LABELS[type as VaultType] ?? type}
             </p>
-            <p className="text-lg font-bold tabular-nums">{formatCurrency(balance)}</p>
+            <p className="text-lg font-bold tabular-nums">{formatCurrency(balance, baseCurrency)}</p>
           </div>
         ))}
       </div>
@@ -92,7 +101,7 @@ export default async function VaultsPage() {
       {/* Список хранилищ */}
       <div className="space-y-3">
         {vaults.map((vault) => {
-          const share = totalBalance > 0 ? (vault.balance / totalBalance) * 100 : 0;
+          const share = totalBalance > 0 ? (vault.balanceInBaseCurrency / totalBalance) * 100 : 0;
           return (
             <Link key={vault.id} href={`/vaults/${vault.id}`} className="block">
             <Card className="hover:border-[hsl(216,34%,28%)] transition-colors cursor-pointer">
@@ -154,9 +163,14 @@ export default async function VaultsPage() {
                   {/* Баланс */}
                   <div className="text-right flex-shrink-0">
                     <p className="text-xl font-bold tabular-nums text-white">
-                      {formatCurrency(vault.balance, vault.currency)}
+                      {formatCurrency(vault.balance, vault.balanceCurrency)}
                     </p>
-                    <p className="text-xs text-slate-600 mt-0.5">{vault.currency}</p>
+                    {vault.balanceCurrency !== vault.baseCurrency && (
+                      <p className="text-xs text-slate-500 tabular-nums mt-0.5">
+                        ≈ {formatCurrency(vault.balanceInBaseCurrency, vault.baseCurrency)}
+                      </p>
+                    )}
+                    <p className="text-xs text-slate-600 mt-0.5">{vault.balanceCurrency}</p>
                   </div>
                 </div>
               </CardContent>

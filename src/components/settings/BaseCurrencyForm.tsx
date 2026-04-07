@@ -21,7 +21,7 @@ export function BaseCurrencyForm({ currentCurrency, supportedCurrencies }: Props
   );
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form key={currentCurrency} action={formAction} className="space-y-4">
       <div className="flex flex-wrap gap-2">
         {supportedCurrencies.map((c) => (
           <label key={c.code} className="cursor-pointer">

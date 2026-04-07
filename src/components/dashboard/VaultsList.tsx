@@ -35,7 +35,7 @@ export function VaultsList({ vaults }: VaultsListProps) {
       <CardContent>
         <div className="space-y-2">
           {vaults.slice(0, 6).map((vault) => {
-            const share = totalBalance > 0 ? (vault.balance / totalBalance) * 100 : 0;
+            const share = totalBalance > 0 ? (vault.balanceInBaseCurrency / totalBalance) * 100 : 0;
             return (
               <div
                 key={vault.id}

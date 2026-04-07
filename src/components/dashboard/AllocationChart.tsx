@@ -16,6 +16,7 @@ interface VaultData {
   name: string;
   type: VaultType;
   balance: number;
+  balanceInBaseCurrency: number;
   color?: string | null;
 }
 
@@ -54,11 +55,11 @@ function CustomTooltip({ active, payload }: {
 
 export function AllocationChart({ vaults }: AllocationChartProps) {
   const data = vaults
-    .filter((v) => v.balance > 0)
+    .filter((v) => v.balanceInBaseCurrency > 0)
     .map((v) => ({
       name: v.name,
       type: v.type,
-      value: v.balance,
+      value: v.balanceInBaseCurrency,
       color: v.color ?? TYPE_COLORS[v.type] ?? "#6b7280",
     }));
 
