@@ -18,21 +18,34 @@ export interface CurrencyDirectoryItem {
 
 /**
  * Загружает последние курсы из БД и возвращает их в виде карты.
- * Для каждой пары (from, to) берётся только самая свежая запись.
+ * Для каждой пары (from, to) приоритет у источника ЦБ РФ (source="cbr"),
+ * иначе берётся самая свежая запись любого источника.
  * Тождественный курс (X → X = 1) вычисляется на лету в convertAmount.
  */
 export async function getExchangeRates(): Promise<ExchangeRateMap> {
   const rows = await prisma.exchangeRate.findMany({
-    orderBy: { date: "desc" },
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
   });
 
   const map: ExchangeRateMap = {};
+  const chosenSourceByPair = new Map<string, string>();
 
   for (const row of rows) {
     if (!map[row.fromCurrency]) map[row.fromCurrency] = {};
-    // Берём только первую (новейшую) запись для каждой пары
-    if (!(row.toCurrency in map[row.fromCurrency])) {
+
+    const pairKey = `${row.fromCurrency}-${row.toCurrency}`;
+    const existingSource = chosenSourceByPair.get(pairKey);
+
+    if (!existingSource) {
       map[row.fromCurrency][row.toCurrency] = row.rate;
+      chosenSourceByPair.set(pairKey, row.source);
+      continue;
+    }
+
+    // Если уже выбрали не-CBR источник, а текущая запись из CBR — переопределяем.
+    if (existingSource !== "cbr" && row.source === "cbr") {
+      map[row.fromCurrency][row.toCurrency] = row.rate;
+      chosenSourceByPair.set(pairKey, row.source);
     }
   }
 

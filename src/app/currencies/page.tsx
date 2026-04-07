@@ -14,8 +14,7 @@ export default async function CurrenciesPage() {
       orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
     }),
     prisma.exchangeRate.findMany({
-      orderBy: { date: "desc" },
-      take: 50,
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     }),
     prisma.exchangeRate.findFirst({
       where: { source: "cbr" },
@@ -51,7 +50,16 @@ export default async function CurrenciesPage() {
   const latestByPair = new Map<string, (typeof rates)[number]>();
   for (const r of rates) {
     const key = `${r.fromCurrency}-${r.toCurrency}`;
-    if (!latestByPair.has(key)) latestByPair.set(key, r);
+    const existing = latestByPair.get(key);
+    if (!existing) {
+      latestByPair.set(key, r);
+      continue;
+    }
+
+    // В UI показываем курс ЦБ приоритетно, если он есть для пары.
+    if (existing.source !== "cbr" && r.source === "cbr") {
+      latestByPair.set(key, r);
+    }
   }
 
   const usedCurrencyCodes = new Set(
