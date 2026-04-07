@@ -10,12 +10,13 @@ function createPrismaClient() {
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
   prismaSchemaV2: PrismaClient | undefined;
+  prismaSchemaV3: PrismaClient | undefined;
 };
 
 // Use a versioned global slot to avoid stale Prisma client shape
 // after schema changes during dev server hot reload.
-export const prisma = globalForPrisma.prismaSchemaV2 ?? createPrismaClient();
+export const prisma = globalForPrisma.prismaSchemaV3 ?? createPrismaClient();
 
 if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prismaSchemaV2 = prisma;
+  globalForPrisma.prismaSchemaV3 = prisma;
 }

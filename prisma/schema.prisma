@@ -50,6 +50,7 @@ model Vault {
   relationsTo      VaultRelation[] @relation("RelationTo")
   snapshots        VaultSnapshot[]
   subscriptions    Subscription[]
+  recurringIncomes RecurringIncome[]
 }
 
 // ─── Актив внутри хранилища ───────────────────────────────────────────────────
@@ -212,6 +213,23 @@ model Subscription {
   category       String
   vaultId        String
   isEssential    Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  vault          Vault    @relation(fields: [vaultId], references: [id])
+}
+
+model RecurringIncome {
+  id             String   @id @default(cuid())
+  name           String   // "Зарплата", "Фриланс", "Аренда"
+  amount         Float
+  currency       String   @default("RUB")
+  billingPeriod  String   // monthly | weekly | yearly | biweekly
+  nextIncomeDate DateTime
+  category       String   // salary | freelance | rental | pension | business | other
+  vaultId        String   // в какое хранилище поступает
   isActive       Boolean  @default(true)
   note           String?
   createdAt      DateTime @default(now())

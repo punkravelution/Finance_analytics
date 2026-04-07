@@ -11,8 +11,10 @@ import { VaultsList } from "@/components/dashboard/VaultsList";
 import { RecentTransactions } from "@/components/dashboard/RecentTransactions";
 import { CapitalChart } from "@/components/dashboard/CapitalChart";
 import { AllocationChart } from "@/components/dashboard/AllocationChart";
+import { Card } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
 import { getExchangeRates, getBaseCurrency, convertAmount } from "@/lib/currency";
+import { getTotalMonthlyIncome } from "@/app/actions/recurringIncome";
 
 export const dynamic = "force-dynamic";
 
@@ -43,11 +45,12 @@ async function getCapitalChartData() {
 }
 
 export default async function HomePage() {
-  const [stats, vaults, transactions, chartData] = await Promise.all([
+  const [stats, vaults, transactions, chartData, recurringIncomeTotals] = await Promise.all([
     getDashboardStats(),
     getVaultSummaries(),
     getRecentTransactions(30),
     getCapitalChartData(),
+    getTotalMonthlyIncome(),
   ]);
 
   const now = new Date();
@@ -125,7 +128,7 @@ export default async function HomePage() {
       </div>
 
       {/* Метрики месяца */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <StatCard
           title={`Доходы · ${monthName}`}
           value={formatCurrency(stats.monthlyIncome)}
@@ -138,6 +141,20 @@ export default async function HomePage() {
           icon={<TrendingDown size={16} />}
           accent="red"
         />
+        <Card>
+          <div className="flex items-start justify-between mb-3">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+              Доходы / мес
+            </p>
+            <div className="p-2 rounded-lg text-green-400 bg-green-500/10">
+              <TrendingUp size={16} />
+            </div>
+          </div>
+          <p className="text-2xl font-bold tabular-nums text-green-400">
+            {formatCurrency(recurringIncomeTotals.totalMonthly, recurringIncomeTotals.currency)}
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5">Регулярные поступления</p>
+        </Card>
         <StatCard
           title={`Накопления · ${monthName}`}
           value={formatCurrency(stats.monthlySavings)}

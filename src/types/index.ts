@@ -141,3 +141,15 @@ export interface VaultSummary {
   icon?: string | null;
   assetsCount: number;
 }
+
+export interface CreateRecurringIncomeInput {
+  name: string;
+  amount: number;
+  currency: string;
+  billingPeriod: "monthly" | "weekly" | "yearly" | "biweekly";
+  nextIncomeDate: Date;
+  category: "salary" | "freelance" | "rental" | "pension" | "business" | "other";
+  vaultId: string;
+  isActive?: boolean;
+  note?: string;
+}
