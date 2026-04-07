@@ -18,7 +18,7 @@ export default async function EditTransactionPage({ params }: Props) {
     prisma.transaction.findUnique({ where: { id } }),
     prisma.vault.findMany({
       where: { isActive: true },
-      select: { id: true, name: true, icon: true },
+      select: { id: true, name: true, icon: true, balanceSource: true },
       orderBy: { sortOrder: "asc" },
     }),
     prisma.category.findMany({

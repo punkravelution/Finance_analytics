@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
+import { getVaultBalance, BALANCE_SOURCE_LABELS } from "@/lib/vaultBalance";
 import {
   VAULT_TYPE_LABELS,
   LIQUIDITY_LABELS,
@@ -100,11 +101,9 @@ export default async function VaultDetailPage({ params }: Props) {
 
   if (!vault || !vault.isActive) notFound();
 
-  // Текущий баланс: последний снимок или сумма активов
+  // Текущий баланс через единый источник (MANUAL или ASSETS)
+  const { balance } = getVaultBalance(vault);
   const lastSnapshot = vault.snapshots[0];
-  const balance = lastSnapshot
-    ? lastSnapshot.balance
-    : vault.assets.reduce((s, a) => s + (a.currentTotalValue ?? 0), 0);
 
   // Объединить и отсортировать транзакции
   const allTransactions = [
@@ -171,6 +170,9 @@ export default async function VaultDetailPage({ params }: Props) {
                 }
               >
                 Риск: {RISK_LABELS[vault.riskLevel as RiskLevel]}
+              </Badge>
+              <Badge variant={vault.balanceSource === "MANUAL" ? "info" : "default"}>
+                {BALANCE_SOURCE_LABELS[vault.balanceSource] ?? vault.balanceSource}
               </Badge>
               {vault.includeInSpendableBalance && (
                 <Badge variant="success">Доступный баланс</Badge>

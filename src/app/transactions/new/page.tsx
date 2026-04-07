@@ -10,7 +10,7 @@ export default async function NewTransactionPage() {
   const [vaults, categories] = await Promise.all([
     prisma.vault.findMany({
       where: { isActive: true },
-      select: { id: true, name: true, icon: true },
+      select: { id: true, name: true, icon: true, balanceSource: true },
       orderBy: { sortOrder: "asc" },
     }),
     prisma.category.findMany({

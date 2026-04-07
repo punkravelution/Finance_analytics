@@ -13,12 +13,16 @@ export interface VaultActionState {
 }
 
 function parseVaultFormData(formData: FormData) {
+  const manualBalanceStr = formData.get("manualBalance")?.toString() ?? "";
+  const manualBalance = parseFloat(manualBalanceStr);
   return {
     name: formData.get("name")?.toString().trim() ?? "",
     type: formData.get("type")?.toString() ?? "",
     currency: formData.get("currency")?.toString().trim() || "RUB",
     liquidityLevel: formData.get("liquidityLevel")?.toString() || "medium",
     riskLevel: formData.get("riskLevel")?.toString() || "low",
+    balanceSource: formData.get("balanceSource")?.toString() || "MANUAL",
+    manualBalance: isNaN(manualBalance) ? 0 : manualBalance,
     includeInNetWorth: formData.get("includeInNetWorth") === "on",
     includeInSpendableBalance: formData.get("includeInSpendableBalance") === "on",
     includeInLiquidCapital: formData.get("includeInLiquidCapital") === "on",

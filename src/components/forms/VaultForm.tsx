@@ -23,6 +23,8 @@ interface VaultFormProps {
     currency?: string;
     liquidityLevel?: string;
     riskLevel?: string;
+    balanceSource?: string;
+    manualBalance?: number;
     includeInNetWorth?: boolean;
     includeInSpendableBalance?: boolean;
     includeInLiquidCapital?: boolean;
@@ -45,6 +47,8 @@ export function VaultForm({
 
   const [name, setName] = useState(defaultValues.name ?? "");
   const [type, setType] = useState(defaultValues.type ?? "");
+  const [balanceSource, setBalanceSource] = useState(defaultValues.balanceSource ?? "MANUAL");
+  const [manualBalance, setManualBalance] = useState(String(defaultValues.manualBalance ?? "0"));
   const [currency, setCurrency] = useState(defaultValues.currency ?? "RUB");
   const [liquidityLevel, setLiquidityLevel] = useState(
     defaultValues.liquidityLevel ?? "medium"
@@ -172,6 +176,48 @@ export function VaultForm({
           </select>
         </div>
       </div>
+
+      {/* Источник баланса */}
+      <div>
+        <label className="block text-sm font-medium text-slate-300 mb-1.5">
+          Источник баланса
+        </label>
+        <select
+          name="balanceSource"
+          value={balanceSource}
+          onChange={(e) => setBalanceSource(e.target.value)}
+          className={inputClass}
+        >
+          <option value="MANUAL">Ручной — банк, наличные, вклад</option>
+          <option value="ASSETS">Из активов — крипта, инвестиции, имущество</option>
+        </select>
+        <p className="mt-1.5 text-xs text-slate-500">
+          {balanceSource === "MANUAL"
+            ? "Баланс хранится в поле и изменяется через операции (доход/расход/перевод)."
+            : "Баланс рассчитывается автоматически как сумма активов внутри хранилища."}
+        </p>
+      </div>
+
+      {/* Начальный баланс — только для MANUAL */}
+      {balanceSource === "MANUAL" && (
+        <div>
+          <label className="block text-sm font-medium text-slate-300 mb-1.5">
+            Текущий баланс
+          </label>
+          <input
+            name="manualBalance"
+            type="number"
+            step="any"
+            value={manualBalance}
+            onChange={(e) => setManualBalance(e.target.value)}
+            placeholder="0"
+            className={inputClass}
+          />
+          <p className="mt-1.5 text-xs text-slate-500">
+            Установите начальный баланс. Далее он будет меняться через операции.
+          </p>
+        </div>
+      )}
 
       {/* Режимы участия в балансе */}
       <div className="space-y-2.5">

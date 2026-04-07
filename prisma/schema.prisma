@@ -27,6 +27,8 @@ model Vault {
   type             String         // bank | cash | crypto | investment | deposit | steam | property | other
   currency         String         @default("RUB")
   isActive                  Boolean  @default(true)
+  balanceSource             String   @default("MANUAL") // MANUAL | ASSETS
+  manualBalance             Float    @default(0)
   includeInNetWorth         Boolean  @default(true)
   includeInSpendableBalance Boolean  @default(true)
   includeInLiquidCapital    Boolean  @default(true)

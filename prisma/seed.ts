@@ -61,10 +61,10 @@ async function main() {
   console.log(`✓ Создано категорий: ${categories.length}`);
 
   // ─── Хранилища (Vaults) ─────────────────────────────────────────────────────
-  // bank — доступный + ликвидный + общий
+  // bank/MANUAL — доступный + ликвидный + общий
   const sberbank = await prisma.vault.upsert({
     where: { id: "vault-sber" },
-    update: { includeInSpendableBalance: true, includeInLiquidCapital: true },
+    update: { balanceSource: "MANUAL", manualBalance: 0, includeInSpendableBalance: true, includeInLiquidCapital: true },
     create: {
       id: "vault-sber",
       name: "Сбербанк",
@@ -75,15 +75,17 @@ async function main() {
       color: "#22c55e",
       icon: "🏦",
       sortOrder: 1,
+      balanceSource: "MANUAL",
+      manualBalance: 0,
       includeInSpendableBalance: true,
       includeInLiquidCapital: true,
     },
   });
 
-  // bank — доступный + ликвидный + общий
+  // bank/MANUAL — доступный + ликвидный + общий
   const tbank = await prisma.vault.upsert({
     where: { id: "vault-tbank" },
-    update: { includeInSpendableBalance: true, includeInLiquidCapital: true },
+    update: { balanceSource: "MANUAL", manualBalance: 0, includeInSpendableBalance: true, includeInLiquidCapital: true },
     create: {
       id: "vault-tbank",
       name: "Т-Банк",
@@ -94,15 +96,17 @@ async function main() {
       color: "#facc15",
       icon: "💳",
       sortOrder: 2,
+      balanceSource: "MANUAL",
+      manualBalance: 0,
       includeInSpendableBalance: true,
       includeInLiquidCapital: true,
     },
   });
 
-  // cash — доступный + ликвидный + общий
+  // cash/MANUAL — доступный + ликвидный + общий
   const cash = await prisma.vault.upsert({
     where: { id: "vault-cash" },
-    update: { includeInSpendableBalance: true, includeInLiquidCapital: true },
+    update: { balanceSource: "MANUAL", manualBalance: 0, includeInSpendableBalance: true, includeInLiquidCapital: true },
     create: {
       id: "vault-cash",
       name: "Наличные",
@@ -113,15 +117,17 @@ async function main() {
       color: "#84cc16",
       icon: "💵",
       sortOrder: 3,
+      balanceSource: "MANUAL",
+      manualBalance: 0,
       includeInSpendableBalance: true,
       includeInLiquidCapital: true,
     },
   });
 
-  // investment — не доступный, но ликвидный + общий
+  // investment/ASSETS — не доступный, но ликвидный + общий
   const investVault = await prisma.vault.upsert({
     where: { id: "vault-invest" },
-    update: { includeInSpendableBalance: false, includeInLiquidCapital: true },
+    update: { balanceSource: "ASSETS", manualBalance: 0, includeInSpendableBalance: false, includeInLiquidCapital: true },
     create: {
       id: "vault-invest",
       name: "Брокерский счёт",
@@ -133,15 +139,17 @@ async function main() {
       color: "#3b82f6",
       icon: "📈",
       sortOrder: 4,
+      balanceSource: "ASSETS",
+      manualBalance: 0,
       includeInSpendableBalance: false,
       includeInLiquidCapital: true,
     },
   });
 
-  // crypto — не доступный, но ликвидный + общий
+  // crypto/ASSETS — не доступный, но ликвидный + общий
   const cryptoVault = await prisma.vault.upsert({
     where: { id: "vault-crypto" },
-    update: { includeInSpendableBalance: false, includeInLiquidCapital: true },
+    update: { balanceSource: "ASSETS", manualBalance: 0, includeInSpendableBalance: false, includeInLiquidCapital: true },
     create: {
       id: "vault-crypto",
       name: "Криптокошелёк",
@@ -153,15 +161,17 @@ async function main() {
       color: "#f97316",
       icon: "₿",
       sortOrder: 5,
+      balanceSource: "ASSETS",
+      manualBalance: 0,
       includeInSpendableBalance: false,
       includeInLiquidCapital: true,
     },
   });
 
-  // deposit — не доступный, не ликвидный, только общий
+  // deposit/MANUAL — не доступный, не ликвидный, только общий
   const deposit = await prisma.vault.upsert({
     where: { id: "vault-deposit" },
-    update: { includeInSpendableBalance: false, includeInLiquidCapital: false },
+    update: { balanceSource: "MANUAL", manualBalance: 0, includeInSpendableBalance: false, includeInLiquidCapital: false },
     create: {
       id: "vault-deposit",
       name: "Вклад 15%",
@@ -173,15 +183,17 @@ async function main() {
       icon: "🏧",
       notes: "Вклад на 12 месяцев под 15% годовых",
       sortOrder: 6,
+      balanceSource: "MANUAL",
+      manualBalance: 0,
       includeInSpendableBalance: false,
       includeInLiquidCapital: false,
     },
   });
 
-  // steam — не доступный, не ликвидный, только общий капитал
+  // steam/ASSETS — не доступный, не ликвидный, только общий капитал
   const steam = await prisma.vault.upsert({
     where: { id: "vault-steam" },
-    update: { includeInSpendableBalance: false, includeInLiquidCapital: false },
+    update: { balanceSource: "ASSETS", manualBalance: 0, includeInSpendableBalance: false, includeInLiquidCapital: false },
     create: {
       id: "vault-steam",
       name: "Steam-инвентарь",
@@ -192,6 +204,8 @@ async function main() {
       color: "#6366f1",
       icon: "🎮",
       sortOrder: 7,
+      balanceSource: "ASSETS",
+      manualBalance: 0,
       includeInSpendableBalance: false,
       includeInLiquidCapital: false,
     },
@@ -199,54 +213,7 @@ async function main() {
 
   console.log("✓ Создано хранилищ: 7");
 
-  // ─── Снимки балансов ────────────────────────────────────────────────────────
-  const snapshots = [
-    { vaultId: sberbank.id, balance: 145000 },
-    { vaultId: tbank.id, balance: 87500 },
-    { vaultId: cash.id, balance: 12000 },
-    { vaultId: investVault.id, balance: 320000 },
-    { vaultId: cryptoVault.id, balance: 95000 },
-    { vaultId: deposit.id, balance: 500000 },
-    { vaultId: steam.id, balance: 18000 },
-  ];
-
-  for (const snap of snapshots) {
-    await prisma.vaultSnapshot.create({
-      data: {
-        vaultId: snap.vaultId,
-        date: new Date(),
-        balance: snap.balance,
-        source: "seed",
-      },
-    });
-  }
-
-  // Снимки 30 дней назад для расчёта изменения капитала
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const oldSnapshots = [
-    { vaultId: sberbank.id, balance: 130000 },
-    { vaultId: tbank.id, balance: 75000 },
-    { vaultId: cash.id, balance: 8000 },
-    { vaultId: investVault.id, balance: 295000 },
-    { vaultId: cryptoVault.id, balance: 80000 },
-    { vaultId: deposit.id, balance: 500000 },
-    { vaultId: steam.id, balance: 16000 },
-  ];
-  for (const snap of oldSnapshots) {
-    await prisma.vaultSnapshot.create({
-      data: {
-        vaultId: snap.vaultId,
-        date: thirtyDaysAgo,
-        balance: snap.balance,
-        source: "seed",
-      },
-    });
-  }
-
-  console.log("✓ Созданы снимки балансов");
-
-  // ─── Активы ─────────────────────────────────────────────────────────────────
+  // ─── Активы (только для ASSETS-хранилищ) ───────────────────────────────────
   await prisma.asset.upsert({
     where: { id: "asset-sber-stock" },
     update: {},
@@ -356,59 +323,8 @@ async function main() {
 
   console.log("✓ Создано активов: 6");
 
-  // ─── Транзакции ─────────────────────────────────────────────────────────────
-  const now = new Date();
-  const month = now.getMonth();
-  const year = now.getFullYear();
-
-  const transactions = [
-    { date: new Date(year, month, 5), type: "income", amount: 120000, toVaultId: sberbank.id, categoryId: "cat-salary", note: "Зарплата за март" },
-    { date: new Date(year, month, 8), type: "income", amount: 35000, toVaultId: tbank.id, categoryId: "cat-freelance", note: "Проект веб-сайт" },
-    { date: new Date(year, month, 1), type: "expense", amount: 4500, fromVaultId: tbank.id, categoryId: "cat-food", note: "Пятёрочка" },
-    { date: new Date(year, month, 3), type: "expense", amount: 2800, fromVaultId: tbank.id, categoryId: "cat-transport", note: "Заправка" },
-    { date: new Date(year, month, 4), type: "expense", amount: 1200, fromVaultId: tbank.id, categoryId: "cat-utilities", note: "Интернет" },
-    { date: new Date(year, month, 6), type: "expense", amount: 3200, fromVaultId: sberbank.id, categoryId: "cat-food", note: "Гипермаркет" },
-    { date: new Date(year, month, 7), type: "expense", amount: 800, fromVaultId: tbank.id, categoryId: "cat-entertainment", note: "Кино" },
-    { date: new Date(year, month, 9), type: "expense", amount: 1500, fromVaultId: sberbank.id, categoryId: "cat-health", note: "Аптека" },
-    { date: new Date(year, month, 10), type: "expense", amount: 45000, fromVaultId: sberbank.id, categoryId: "cat-investment", note: "Пополнение брокерского" },
-    { date: new Date(year, month, 10), type: "income", amount: 45000, toVaultId: investVault.id, categoryId: "cat-investment", note: "Пополнение от Сбера" },
-    { date: new Date(year, month, 2), type: "transfer", amount: 20000, fromVaultId: sberbank.id, toVaultId: tbank.id, categoryId: "cat-transfer", note: "На расходы" },
-    { date: new Date(year, month - 1, 5), type: "income", amount: 120000, toVaultId: sberbank.id, categoryId: "cat-salary", note: "Зарплата за февраль" },
-    { date: new Date(year, month - 1, 10), type: "expense", amount: 5100, fromVaultId: tbank.id, categoryId: "cat-food", note: "Продукты" },
-    { date: new Date(year, month - 1, 15), type: "expense", amount: 3400, fromVaultId: tbank.id, categoryId: "cat-transport", note: "Транспорт" },
-  ];
-
-  for (const tx of transactions) {
-    await prisma.transaction.create({ data: { ...tx } as Parameters<typeof prisma.transaction.create>[0]["data"] });
-  }
-
-  console.log(`✓ Создано транзакций: ${transactions.length}`);
-
-  // ─── Доходные события ───────────────────────────────────────────────────────
-  await prisma.incomeEvent.create({
-    data: {
-      assetId: "asset-ofz",
-      vaultId: investVault.id,
-      date: new Date(year, month - 1, 20),
-      amount: 1340,
-      incomeType: "coupon",
-      note: "Купонный доход ОФЗ 26238",
-    },
-  });
-
-  await prisma.incomeEvent.create({
-    data: {
-      assetId: "asset-eth",
-      vaultId: cryptoVault.id,
-      date: new Date(year, month - 2, 15),
-      amount: 12,
-      currency: "USD",
-      incomeType: "staking",
-      note: "Стейкинг ETH",
-    },
-  });
-
-  console.log("✓ Созданы доходные события");
+  // Транзакции и доходные события не создаются — чистый старт.
+  // Пользователь добавляет свои данные через интерфейс.
 
   // ─── Курсы валют ────────────────────────────────────────────────────────────
   const rateDate = new Date();
@@ -449,7 +365,7 @@ async function main() {
 
   console.log("\n🎉 База данных заполнена успешно!");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log(`Общий капитал (approx): ${(145000 + 87500 + 12000 + 320000 + 95000 + 500000 + 18000).toLocaleString("ru-RU")} ₽`);
+  console.log("Чистый старт: балансы = 0, добавьте свои данные через интерфейс.");
 }
 
 main()

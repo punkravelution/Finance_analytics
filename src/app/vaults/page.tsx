@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Vault, Layers, Plus } from "lucide-react";
 import { getExchangeRates, getBaseCurrency, convertAmount } from "@/lib/currency";
+import { getVaultBalance } from "@/lib/vaultBalance";
 
 export const dynamic = "force-dynamic";
 
@@ -18,19 +19,14 @@ async function getVaults() {
   const vaults = await prisma.vault.findMany({
     where: { isActive: true },
     include: {
-      assets: { where: { isActive: true } },
-      snapshots: { orderBy: { date: "desc" }, take: 1 },
+      assets: { where: { isActive: true }, select: { currentTotalValue: true } },
       _count: { select: { assets: true } },
     },
     orderBy: { sortOrder: "asc" },
   });
 
   return vaults.map((v) => {
-    const lastSnapshot = v.snapshots[0];
-    const balanceCurrency = lastSnapshot?.currency ?? v.currency;
-    const balance = lastSnapshot
-      ? lastSnapshot.balance
-      : v.assets.reduce((s, a) => s + (a.currentTotalValue ?? 0), 0);
+    const { balance, currency: balanceCurrency } = getVaultBalance(v);
     const balanceInBaseCurrency = convertAmount(balance, balanceCurrency, baseCurrency, rates);
     return { ...v, balance, balanceCurrency, balanceInBaseCurrency, baseCurrency };
   });

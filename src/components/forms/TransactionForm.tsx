@@ -9,6 +9,7 @@ interface VaultOption {
   id: string;
   name: string;
   icon?: string | null;
+  balanceSource?: string;
 }
 
 interface CategoryOption {
@@ -178,9 +179,14 @@ export function TransactionForm({
               >
                 <option value="">Выберите хранилище…</option>
                 {vaults.map((v) => (
-                  <option key={v.id} value={v.id}>
+                  <option
+                    key={v.id}
+                    value={v.id}
+                    disabled={v.balanceSource === "ASSETS"}
+                  >
                     {v.icon ? `${v.icon} ` : ""}
                     {v.name}
+                    {v.balanceSource === "ASSETS" ? " (из активов)" : ""}
                   </option>
                 ))}
               </select>
@@ -208,9 +214,14 @@ export function TransactionForm({
                 {vaults
                   .filter((v) => v.id !== fromVaultId)
                   .map((v) => (
-                    <option key={v.id} value={v.id}>
+                    <option
+                      key={v.id}
+                      value={v.id}
+                      disabled={v.balanceSource === "ASSETS"}
+                    >
                       {v.icon ? `${v.icon} ` : ""}
                       {v.name}
+                      {v.balanceSource === "ASSETS" ? " (из активов)" : ""}
                     </option>
                   ))}
               </select>
