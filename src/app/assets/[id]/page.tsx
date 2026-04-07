@@ -9,6 +9,7 @@ import {
   Pencil,
   Clock,
   Coins,
+  Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,10 +17,16 @@ import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatDate, formatNumber, formatPercent } from "@/lib/format";
 import {
   ASSET_TYPE_LABELS,
+  INCOME_EVENT_TYPE_LABELS,
   VAULT_TYPE_LABELS,
   type AssetType,
+  type IncomeEventType,
   type VaultType,
 } from "@/types";
+import { AddValuationForm } from "@/components/assets/AddValuationForm";
+import { AddIncomeEventForm } from "@/components/assets/AddIncomeEventForm";
+import { deleteValuation } from "@/app/actions/valuation";
+import { deleteIncomeEvent } from "@/app/actions/incomeEvent";
 
 export const dynamic = "force-dynamic";
 
@@ -34,15 +41,11 @@ export default async function AssetDetailPage({ params }: Props) {
     where: { id },
     include: {
       vault: true,
-      // Загружаем последние 5 оценок для будущего расширения через AssetValuation
       valuations: {
         orderBy: { date: "desc" },
-        take: 5,
       },
-      // Загружаем последние доходные события для будущего расширения через IncomeEvent
       incomeEvents: {
         orderBy: { date: "desc" },
-        take: 5,
       },
     },
   });
@@ -247,7 +250,7 @@ export default async function AssetDetailPage({ params }: Props) {
         )}
       </div>
 
-      {/* История оценок — подготовлено под AssetValuation */}
+      {/* История оценок */}
       <Card className="mt-6">
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -255,6 +258,7 @@ export default async function AssetDetailPage({ params }: Props) {
               <TrendingUp size={14} />
               История оценок
             </CardTitle>
+            <AddValuationForm assetId={id} />
           </div>
         </CardHeader>
         <CardContent>
@@ -263,23 +267,44 @@ export default async function AssetDetailPage({ params }: Props) {
               <TrendingUp size={28} className="mx-auto mb-2 opacity-20" />
               <p className="text-sm">Записей об оценке нет</p>
               <p className="text-xs mt-1 text-slate-700">
-                История будет доступна после добавления переоценок через AssetValuation
+                Нажмите «Добавить оценку», чтобы зафиксировать текущую цену
               </p>
             </div>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-0">
               {asset.valuations.map((v) => (
                 <div
                   key={v.id}
-                  className="flex items-center justify-between py-2 px-1 border-b border-[hsl(216,34%,13%)] last:border-0"
+                  className="flex items-center justify-between py-2.5 px-1 border-b border-[hsl(216,34%,13%)] last:border-0 group"
                 >
-                  <span className="text-sm text-slate-400">
-                    {formatDate(v.date)}
-                  </span>
-                  <span className="text-sm text-slate-300 tabular-nums">
-                    {formatCurrency(v.unitPrice, asset.currency)} / ед. ·{" "}
-                    {formatCurrency(v.totalValue, asset.currency)}
-                  </span>
+                  <div>
+                    <span className="text-sm text-slate-400">
+                      {formatDate(v.date)}
+                    </span>
+                    {v.notes && (
+                      <p className="text-xs text-slate-600 mt-0.5">{v.notes}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-slate-300 tabular-nums">
+                      {formatCurrency(v.unitPrice, asset.currency)} / ед. ·{" "}
+                      <span className="text-white font-medium">
+                        {formatCurrency(v.totalValue, asset.currency)}
+                      </span>
+                    </span>
+                    <form
+                      action={deleteValuation.bind(null, id, v.id)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <button
+                        type="submit"
+                        title="Удалить"
+                        className="text-slate-600 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </form>
+                  </div>
                 </div>
               ))}
             </div>
@@ -287,13 +312,20 @@ export default async function AssetDetailPage({ params }: Props) {
         </CardContent>
       </Card>
 
-      {/* Доходные события — подготовлено под IncomeEvent */}
+      {/* Доходные события */}
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Coins size={14} />
-            Доходные события
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Coins size={14} />
+              Доходные события
+            </CardTitle>
+            <AddIncomeEventForm
+              assetId={id}
+              vaultId={asset.vaultId}
+              defaultCurrency={asset.currency}
+            />
+          </div>
         </CardHeader>
         <CardContent>
           {asset.incomeEvents.length === 0 ? (
@@ -301,27 +333,42 @@ export default async function AssetDetailPage({ params }: Props) {
               <Coins size={28} className="mx-auto mb-2 opacity-20" />
               <p className="text-sm">Доходных событий нет</p>
               <p className="text-xs mt-1 text-slate-700">
-                Дивиденды, купоны и стейкинг появятся здесь после добавления через IncomeEvent
+                Нажмите «Добавить событие» для записи дивиденда, купона или стейкинга
               </p>
             </div>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-0">
               {asset.incomeEvents.map((e) => (
                 <div
                   key={e.id}
-                  className="flex items-center justify-between py-2 px-1 border-b border-[hsl(216,34%,13%)] last:border-0"
+                  className="flex items-center justify-between py-2.5 px-1 border-b border-[hsl(216,34%,13%)] last:border-0 group"
                 >
                   <div>
-                    <span className="text-sm text-slate-300">{e.incomeType}</span>
+                    <span className="text-sm text-slate-300">
+                      {INCOME_EVENT_TYPE_LABELS[e.incomeType as IncomeEventType] ??
+                        e.incomeType}
+                    </span>
                     {e.note && (
-                      <p className="text-xs text-slate-600">{e.note}</p>
+                      <p className="text-xs text-slate-600 mt-0.5">{e.note}</p>
                     )}
+                    <p className="text-xs text-slate-600">{formatDate(e.date)}</p>
                   </div>
-                  <div className="text-right">
-                    <span className="text-sm text-green-400 tabular-nums">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-green-400 tabular-nums">
                       +{formatCurrency(e.amount, e.currency)}
                     </span>
-                    <p className="text-xs text-slate-600">{formatDate(e.date)}</p>
+                    <form
+                      action={deleteIncomeEvent.bind(null, id, e.id)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <button
+                        type="submit"
+                        title="Удалить"
+                        className="text-slate-600 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </form>
                   </div>
                 </div>
               ))}
