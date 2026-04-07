@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
 import { getVaultBalance, BALANCE_SOURCE_LABELS } from "@/lib/vaultBalance";
+import { getExchangeRates } from "@/lib/currency";
 import {
   VAULT_TYPE_LABELS,
   LIQUIDITY_LABELS,
@@ -66,6 +67,7 @@ const txTypeVariant: Record<string, "success" | "danger" | "info"> = {
 
 export default async function VaultDetailPage({ params }: Props) {
   const { id } = await params;
+  const rates = await getExchangeRates();
 
   const vault = await prisma.vault.findUnique({
     where: { id },
@@ -102,7 +104,7 @@ export default async function VaultDetailPage({ params }: Props) {
   if (!vault || !vault.isActive) notFound();
 
   // Текущий баланс через единый источник (MANUAL или ASSETS)
-  const { balance } = getVaultBalance(vault);
+  const { balance } = getVaultBalance(vault, rates);
   const lastSnapshot = vault.snapshots[0];
 
   // Объединить и отсортировать транзакции

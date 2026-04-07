@@ -1,6 +1,7 @@
 "use server";
 
 import { setBaseCurrency } from "@/lib/currency";
+import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 
 export interface SettingsActionState {
@@ -16,6 +17,14 @@ export async function updateBaseCurrencyAction(
 
   if (!currency || currency.length !== 3) {
     return { error: "Укажите корректный код валюты (3 символа, например RUB)" };
+  }
+
+  const exists = await prisma.currency.findUnique({
+    where: { code: currency },
+    select: { code: true, isActive: true },
+  });
+  if (!exists || !exists.isActive) {
+    return { error: "Выберите активную валюту из справочника" };
   }
 
   try {

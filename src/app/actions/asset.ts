@@ -10,6 +10,7 @@ export interface AssetActionState {
     assetType?: string;
     vaultId?: string;
     quantity?: string;
+    currency?: string;
     general?: string;
   };
 }
@@ -46,7 +47,7 @@ function parseAssetFormData(formData: FormData) {
       currentUnitPrice != null && !isNaN(currentUnitPrice) && !isNaN(quantity)
         ? currentUnitPrice * quantity
         : null,
-    currency: formData.get("currency")?.toString().trim() || "RUB",
+    currency: formData.get("currency")?.toString().trim().toUpperCase() || "RUB",
     notes: formData.get("notes")?.toString().trim() || null,
     lastUpdatedAt: new Date(),
   };
@@ -62,12 +63,27 @@ function validateAssetData(data: ReturnType<typeof parseAssetFormData>) {
   return errors;
 }
 
+async function validateAssetCurrency(
+  code: string
+): Promise<string | null> {
+  const currency = await prisma.currency.findUnique({
+    where: { code: code.toUpperCase() },
+    select: { code: true, isActive: true },
+  });
+  if (!currency || !currency.isActive) {
+    return "Выберите существующую активную валюту";
+  }
+  return null;
+}
+
 export async function createAsset(
   _prev: AssetActionState,
   formData: FormData
 ): Promise<AssetActionState> {
   const data = parseAssetFormData(formData);
   const errors = validateAssetData(data);
+  const currencyError = await validateAssetCurrency(data.currency);
+  if (currencyError) errors.currency = currencyError;
   if (Object.keys(errors).length > 0) return { errors };
 
   try {
@@ -87,6 +103,8 @@ export async function updateAsset(
 ): Promise<AssetActionState> {
   const data = parseAssetFormData(formData);
   const errors = validateAssetData(data);
+  const currencyError = await validateAssetCurrency(data.currency);
+  if (currencyError) errors.currency = currencyError;
   if (Object.keys(errors).length > 0) return { errors };
 
   try {

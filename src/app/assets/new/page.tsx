@@ -7,11 +7,18 @@ import { createAsset } from "@/app/actions/asset";
 export const dynamic = "force-dynamic";
 
 export default async function NewAssetPage() {
-  const vaults = await prisma.vault.findMany({
-    where: { isActive: true },
-    select: { id: true, name: true, icon: true },
-    orderBy: { sortOrder: "asc" },
-  });
+  const [vaults, currencies] = await Promise.all([
+    prisma.vault.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, icon: true, currency: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+    prisma.currency.findMany({
+      where: { isActive: true },
+      select: { code: true, name: true, symbol: true },
+      orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
+    }),
+  ]);
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -30,6 +37,7 @@ export default async function NewAssetPage() {
           <AssetForm
             action={createAsset}
             vaults={vaults}
+            currencies={currencies}
             cancelHref="/assets"
             submitLabel="Добавить актив"
           />

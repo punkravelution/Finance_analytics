@@ -19,14 +19,14 @@ async function getVaults() {
   const vaults = await prisma.vault.findMany({
     where: { isActive: true },
     include: {
-      assets: { where: { isActive: true }, select: { currentTotalValue: true } },
+      assets: { where: { isActive: true }, select: { currentTotalValue: true, currency: true } },
       _count: { select: { assets: true } },
     },
     orderBy: { sortOrder: "asc" },
   });
 
   return vaults.map((v) => {
-    const { balance, currency: balanceCurrency } = getVaultBalance(v);
+    const { balance, currency: balanceCurrency } = getVaultBalance(v, rates);
     const balanceInBaseCurrency = convertAmount(balance, balanceCurrency, baseCurrency, rates);
     return { ...v, balance, balanceCurrency, balanceInBaseCurrency, baseCurrency };
   });

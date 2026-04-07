@@ -5,7 +5,7 @@ import {
   convertAmount,
   type ExchangeRateMap,
 } from "./currency";
-import { getVaultBalance } from "./vaultBalance";
+import { getVaultBalance, getVaultBalanceInCurrency } from "./vaultBalance";
 import type { DashboardStats, VaultSummary } from "@/types";
 
 // ─── Вспомогательные функции ──────────────────────────────────────────────────
@@ -33,7 +33,7 @@ async function fetchActiveVaultsWithAssets() {
     include: {
       assets: {
         where: { isActive: true },
-        select: { currentTotalValue: true },
+        select: { currentTotalValue: true, currency: true },
       },
     },
     orderBy: { sortOrder: "asc" },
@@ -48,11 +48,11 @@ export async function calcNetWorth(): Promise<number> {
     getExchangeRates(),
     prisma.vault.findMany({
       where: { isActive: true, includeInNetWorth: true },
-      include: { assets: { where: { isActive: true }, select: { currentTotalValue: true } } },
+      include: { assets: { where: { isActive: true }, select: { currentTotalValue: true, currency: true } } },
     }),
   ]);
   return vaults.reduce((sum, v) => {
-    const { balance } = getVaultBalance(v);
+    const { balance } = getVaultBalance(v, rates);
     return sum + toBase(balance, v.currency, baseCurrency, rates);
   }, 0);
 }
@@ -63,11 +63,11 @@ export async function calcSpendableBalance(): Promise<number> {
     getExchangeRates(),
     prisma.vault.findMany({
       where: { isActive: true, includeInSpendableBalance: true },
-      include: { assets: { where: { isActive: true }, select: { currentTotalValue: true } } },
+      include: { assets: { where: { isActive: true }, select: { currentTotalValue: true, currency: true } } },
     }),
   ]);
   return vaults.reduce((sum, v) => {
-    const { balance } = getVaultBalance(v);
+    const { balance } = getVaultBalance(v, rates);
     return sum + toBase(balance, v.currency, baseCurrency, rates);
   }, 0);
 }
@@ -78,11 +78,11 @@ export async function calcLiquidCapital(): Promise<number> {
     getExchangeRates(),
     prisma.vault.findMany({
       where: { isActive: true, includeInLiquidCapital: true },
-      include: { assets: { where: { isActive: true }, select: { currentTotalValue: true } } },
+      include: { assets: { where: { isActive: true }, select: { currentTotalValue: true, currency: true } } },
     }),
   ]);
   return vaults.reduce((sum, v) => {
-    const { balance } = getVaultBalance(v);
+    const { balance } = getVaultBalance(v, rates);
     return sum + toBase(balance, v.currency, baseCurrency, rates);
   }, 0);
 }
@@ -125,11 +125,11 @@ export async function calcTotalInvestments(): Promise<number> {
     getExchangeRates(),
     prisma.vault.findMany({
       where: { isActive: true, includeInNetWorth: true, type: { in: ["investment", "crypto", "deposit"] } },
-      include: { assets: { where: { isActive: true }, select: { currentTotalValue: true } } },
+      include: { assets: { where: { isActive: true }, select: { currentTotalValue: true, currency: true } } },
     }),
   ]);
   return vaults.reduce((sum, v) => {
-    const { balance } = getVaultBalance(v);
+    const { balance } = getVaultBalance(v, rates);
     return sum + toBase(balance, v.currency, baseCurrency, rates);
   }, 0);
 }
@@ -153,8 +153,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   let totalInvestments = 0;
 
   for (const vault of allVaults) {
-    const { balance } = getVaultBalance(vault);
-    const inBase = toBase(balance, vault.currency, baseCurrency, rates);
+    const inBase = getVaultBalanceInCurrency(vault, baseCurrency, rates);
 
     if (vault.includeInNetWorth) totalNetWorth += inBase;
     if (vault.includeInSpendableBalance) spendableBalance += inBase;
@@ -234,7 +233,7 @@ export async function getVaultSummaries(): Promise<VaultSummary[]> {
   ]);
 
   return vaults.map((v) => {
-    const { balance, currency: balanceCurrency } = getVaultBalance(v);
+    const { balance, currency: balanceCurrency } = getVaultBalance(v, rates);
     const balanceInBaseCurrency = toBase(balance, balanceCurrency, baseCurrency, rates);
 
     return {

@@ -15,12 +15,17 @@ interface Props {
 export default async function EditAssetPage({ params }: Props) {
   const { id } = await params;
 
-  const [asset, vaults] = await Promise.all([
+  const [asset, vaults, currencies] = await Promise.all([
     prisma.asset.findUnique({ where: { id } }),
     prisma.vault.findMany({
       where: { isActive: true },
-      select: { id: true, name: true, icon: true },
+      select: { id: true, name: true, icon: true, currency: true },
       orderBy: { sortOrder: "asc" },
+    }),
+    prisma.currency.findMany({
+      where: { isActive: true },
+      select: { code: true, name: true, symbol: true },
+      orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
     }),
   ]);
 
@@ -48,6 +53,7 @@ export default async function EditAssetPage({ params }: Props) {
           <AssetForm
             action={action}
             vaults={vaults}
+            currencies={currencies}
             cancelHref={`/assets/${id}`}
             submitLabel="Сохранить изменения"
             defaultValues={{

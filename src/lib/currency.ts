@@ -10,6 +10,12 @@ export type ExchangeRateMap = Record<string, Record<string, number>>;
 
 export const DEFAULT_BASE_CURRENCY = "RUB";
 
+export interface CurrencyDirectoryItem {
+  code: string;
+  label: string;
+  symbol: string;
+}
+
 /**
  * Загружает последние курсы из БД и возвращает их в виде карты.
  * Для каждой пары (from, to) берётся только самая свежая запись.
@@ -101,12 +107,10 @@ export async function setBaseCurrency(currency: string): Promise<void> {
   });
 }
 
-/**
- * Список поддерживаемых валют для выбора в UI.
- * Расширяется по мере добавления курсов в БД.
- */
-export const SUPPORTED_CURRENCIES = [
-  { code: "RUB", label: "Российский рубль", symbol: "₽" },
-  { code: "USD", label: "Доллар США", symbol: "$" },
-  { code: "EUR", label: "Евро", symbol: "€" },
-] as const;
+export async function getActiveCurrencies(): Promise<CurrencyDirectoryItem[]> {
+  const rows = await prisma.currency.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
+  });
+  return rows.map((c) => ({ code: c.code, label: c.name, symbol: c.symbol }));
+}

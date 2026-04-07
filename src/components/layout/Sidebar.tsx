@@ -8,6 +8,7 @@ import {
   TrendingUp,
   ArrowLeftRight,
   BarChart2,
+  Coins,
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,7 @@ const navItems = [
   { href: "/assets", label: "Активы", icon: TrendingUp },
   { href: "/transactions", label: "Операции", icon: ArrowLeftRight },
   { href: "/analytics", label: "Аналитика", icon: BarChart2 },
+  { href: "/currencies", label: "Валюты", icon: Coins },
 ];
 
 export function Sidebar() {

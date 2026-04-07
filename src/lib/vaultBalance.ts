@@ -1,3 +1,5 @@
+import { convertAmount, type ExchangeRateMap } from "./currency";
+
 /**
  * Единый источник текущего баланса vault.
  *
@@ -15,16 +17,34 @@ export interface VaultForBalance {
   balanceSource: string;
   manualBalance: number;
   currency: string;
-  assets: Array<{ currentTotalValue: number | null }>;
+  assets: Array<{ currentTotalValue: number | null; currency: string }>;
 }
 
-export function getVaultBalance(vault: VaultForBalance): {
-  balance: number;
-  currency: string;
-} {
+/**
+ * Возвращает баланс vault, сконвертированный в целевую валюту.
+ * Для ASSETS-хранилищ каждый актив конвертируется отдельно.
+ */
+export function getVaultBalanceInCurrency(
+  vault: VaultForBalance,
+  targetCurrency: string,
+  rates: ExchangeRateMap
+): number {
+  if (vault.balanceSource === "ASSETS") {
+    return vault.assets.reduce((sum, a) => {
+      const value = a.currentTotalValue ?? 0;
+      return sum + convertAmount(value, a.currency, targetCurrency, rates);
+    }, 0);
+  }
+  return convertAmount(vault.manualBalance, vault.currency, targetCurrency, rates);
+}
+
+export function getVaultBalance(
+  vault: VaultForBalance,
+  rates: ExchangeRateMap
+): { balance: number; currency: string } {
   if (vault.balanceSource === "ASSETS") {
     const balance = vault.assets.reduce(
-      (sum, a) => sum + (a.currentTotalValue ?? 0),
+      (sum, a) => sum + convertAmount(a.currentTotalValue ?? 0, a.currency, vault.currency, rates),
       0
     );
     return { balance, currency: vault.currency };

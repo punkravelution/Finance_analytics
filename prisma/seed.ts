@@ -60,6 +60,26 @@ async function main() {
 
   console.log(`✓ Создано категорий: ${categories.length}`);
 
+  // ─── Справочник валют ────────────────────────────────────────────────────────
+  const currencies = await Promise.all([
+    prisma.currency.upsert({
+      where: { code: "RUB" },
+      update: { name: "Российский рубль", symbol: "₽", isActive: true, sortOrder: 1 },
+      create: { code: "RUB", name: "Российский рубль", symbol: "₽", isActive: true, sortOrder: 1 },
+    }),
+    prisma.currency.upsert({
+      where: { code: "USD" },
+      update: { name: "Доллар США", symbol: "$", isActive: true, sortOrder: 2 },
+      create: { code: "USD", name: "Доллар США", symbol: "$", isActive: true, sortOrder: 2 },
+    }),
+    prisma.currency.upsert({
+      where: { code: "EUR" },
+      update: { name: "Евро", symbol: "€", isActive: true, sortOrder: 3 },
+      create: { code: "EUR", name: "Евро", symbol: "€", isActive: true, sortOrder: 3 },
+    }),
+  ]);
+  console.log(`✓ Валют в справочнике: ${currencies.length}`);
+
   // ─── Хранилища (Vaults) ─────────────────────────────────────────────────────
   // bank/MANUAL — доступный + ликвидный + общий
   const sberbank = await prisma.vault.upsert({

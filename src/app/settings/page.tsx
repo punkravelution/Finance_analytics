@@ -1,12 +1,15 @@
 import { Settings, Database, Info, Globe } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getBaseCurrency, SUPPORTED_CURRENCIES } from "@/lib/currency";
+import { getBaseCurrency, getActiveCurrencies } from "@/lib/currency";
 import { BaseCurrencyForm } from "@/components/settings/BaseCurrencyForm";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const baseCurrency = await getBaseCurrency();
+  const [baseCurrency, currencies] = await Promise.all([
+    getBaseCurrency(),
+    getActiveCurrencies(),
+  ]);
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -34,7 +37,7 @@ export default async function SettingsPage() {
             </p>
             <BaseCurrencyForm
               currentCurrency={baseCurrency}
-              supportedCurrencies={[...SUPPORTED_CURRENCIES]}
+              supportedCurrencies={currencies}
             />
           </CardContent>
         </Card>

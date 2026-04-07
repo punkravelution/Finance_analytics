@@ -175,6 +175,18 @@ model ExchangeRate {
   @@index([fromCurrency, toCurrency, date])
 }
 
+// ─── Справочник валют ──────────────────────────────────────────────────────────
+
+model Currency {
+  code      String   @id
+  name      String
+  symbol    String
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 // ─── Настройки приложения (key-value) ────────────────────────────────────────
 
 model AppSettings {

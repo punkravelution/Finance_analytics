@@ -9,6 +9,13 @@ interface VaultOption {
   id: string;
   name: string;
   icon?: string | null;
+  currency?: string;
+}
+
+interface CurrencyOption {
+  code: string;
+  name: string;
+  symbol: string;
 }
 
 interface AssetFormProps {
@@ -17,6 +24,7 @@ interface AssetFormProps {
     formData: FormData
   ) => Promise<AssetActionState>;
   vaults: VaultOption[];
+  currencies: CurrencyOption[];
   defaultValues?: {
     name?: string;
     assetType?: string;
@@ -39,6 +47,7 @@ const inputClass =
 export function AssetForm({
   action,
   vaults,
+  currencies,
   defaultValues = {},
   cancelHref,
   submitLabel = "Сохранить",
@@ -64,6 +73,9 @@ export function AssetForm({
       : ""
   );
   const [currency, setCurrency] = useState(defaultValues.currency ?? "RUB");
+  const selectedVaultCurrency =
+    vaults.find((v) => v.id === vaultId)?.currency ?? "RUB";
+
   const [notes, setNotes] = useState(defaultValues.notes ?? "");
 
   return (
@@ -240,15 +252,31 @@ export function AssetForm({
         <label className="block text-sm font-medium text-slate-300 mb-1.5">
           Валюта
         </label>
-        <input
+        <select
           name="currency"
-          type="text"
           value={currency}
-          onChange={(e) => setCurrency(e.target.value.toUpperCase())}
-          placeholder="RUB"
-          maxLength={10}
+          onChange={(e) => setCurrency(e.target.value)}
           className={inputClass}
-        />
+        >
+          {currencies.map((c) => (
+            <option key={c.code} value={c.code}>
+              {c.code} · {c.name} ({c.symbol})
+            </option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-slate-500">
+          Рекомендуется валюта хранилища: {selectedVaultCurrency}
+        </p>
+        <button
+          type="button"
+          onClick={() => setCurrency(selectedVaultCurrency)}
+          className="mt-2 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+        >
+          Подставить валюту хранилища
+        </button>
+        {state.errors?.currency && (
+          <p className="mt-1 text-xs text-red-400">{state.errors.currency}</p>
+        )}
       </div>
 
       {/* Заметки */}
