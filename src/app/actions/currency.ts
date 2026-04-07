@@ -214,7 +214,7 @@ export async function triggerCryptoRatesUpdate(): Promise<RatesUpdateActionState
       const data = (await response.json()) as { ok?: boolean; updated?: number; error?: string };
 
       if (!response.ok || !data.ok) {
-        throw new Error(data.error ?? "CoinGecko временно недоступен. Попробуйте позже.");
+        return { error: data.error ?? "CoinGecko временно недоступен. Попробуйте позже." };
       }
 
       applyRevalidate();

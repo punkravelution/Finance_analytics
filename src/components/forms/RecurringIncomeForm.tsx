@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import type { CreateRecurringIncomeInput } from "@/types";
 
@@ -57,6 +58,7 @@ export function RecurringIncomeForm({
   initialData,
   onSubmit,
 }: RecurringIncomeFormProps) {
+  const router = useRouter();
   const [name, setName] = useState(initialData?.name ?? "");
   const [category, setCategory] = useState<CreateRecurringIncomeInput["category"]>(
     initialData?.category ?? "salary"
@@ -75,7 +77,7 @@ export function RecurringIncomeForm({
       ? toDateInputValue(initialData.nextIncomeDate)
       : toDateInputValue(new Date())
   );
-  const [vaultId, setVaultId] = useState(initialData?.vaultId ?? "");
+  const [vaultId, setVaultId] = useState(initialData?.vaultId ?? vaults[0]?.id ?? "");
   const [note, setNote] = useState(initialData?.note ?? "");
   const [isActive, setIsActive] = useState(initialData?.isActive ?? true);
   const [errors, setErrors] = useState<FormErrors>({});
@@ -100,6 +102,9 @@ export function RecurringIncomeForm({
     if (!vaultId) {
       nextErrors.vaultId = "Выберите хранилище";
     }
+    if (vaults.length === 0) {
+      nextErrors.general = "Сначала создайте хранилище для зачисления дохода";
+    }
 
     return nextErrors;
   };
@@ -123,6 +128,8 @@ export function RecurringIncomeForm({
         note: note.trim() ? note.trim() : undefined,
         isActive,
       });
+      router.push("/recurring-incomes");
+      router.refresh();
     } catch {
       setErrors({ general: "Не удалось сохранить доход. Попробуйте ещё раз." });
     } finally {

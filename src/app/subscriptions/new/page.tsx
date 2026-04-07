@@ -1,6 +1,7 @@
 import { RefreshCcw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
+import { getActiveCurrenciesWithDefaults } from "@/lib/currencyDirectory";
 import { SubscriptionForm } from "@/components/forms/SubscriptionForm";
 import { createSubscription } from "@/app/actions/subscription";
 
@@ -13,11 +14,7 @@ export default async function NewSubscriptionPage() {
       select: { id: true, name: true, icon: true },
       orderBy: { sortOrder: "asc" },
     }),
-    prisma.currency.findMany({
-      where: { isActive: true },
-      select: { code: true, name: true, symbol: true },
-      orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
-    }),
+    getActiveCurrenciesWithDefaults(),
   ]);
 
   return (
