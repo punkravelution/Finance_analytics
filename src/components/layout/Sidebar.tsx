@@ -8,6 +8,7 @@ import {
   TrendingUp,
   ArrowLeftRight,
   RefreshCcw,
+  HandCoins,
   BarChart2,
   Coins,
   Settings,
@@ -20,6 +21,7 @@ const navItems = [
   { href: "/assets", label: "Активы", icon: TrendingUp },
   { href: "/transactions", label: "Операции", icon: ArrowLeftRight },
   { href: "/subscriptions", label: "Подписки", icon: RefreshCcw },
+  { href: "/liabilities", label: "Долги", icon: HandCoins },
   { href: "/analytics", label: "Аналитика", icon: BarChart2 },
   { href: "/currencies", label: "Валюты", icon: Coins },
 ];

@@ -448,6 +448,62 @@ async function main() {
   ]);
   console.log("✓ Добавлены тестовые подписки");
 
+  // ─── Долги / обязательства ─────────────────────────────────────────────────
+  await Promise.all([
+    prisma.liability.upsert({
+      where: { id: "liability-cc" },
+      update: {},
+      create: {
+        id: "liability-cc",
+        name: "Кредитная карта Т-Банк",
+        type: "credit_card",
+        principalAmount: 120000,
+        currentBalance: 28500,
+        currency: "RUB",
+        interestRate: 29.9,
+        minimumPayment: 2500,
+        nextPaymentDate: new Date(),
+        lender: "Т-Банк",
+        isActive: true,
+      },
+    }),
+    prisma.liability.upsert({
+      where: { id: "liability-installment" },
+      update: {},
+      create: {
+        id: "liability-installment",
+        name: "Рассрочка на ноутбук",
+        type: "installment",
+        principalAmount: 95000,
+        currentBalance: 38000,
+        currency: "RUB",
+        interestRate: 0,
+        minimumPayment: 7900,
+        nextPaymentDate: new Date(),
+        lender: "Магазин техники",
+        isActive: true,
+      },
+    }),
+    prisma.liability.upsert({
+      where: { id: "liability-loan" },
+      update: {},
+      create: {
+        id: "liability-loan",
+        name: "Займ у знакомого",
+        type: "loan",
+        principalAmount: 1000,
+        currentBalance: 600,
+        currency: "USD",
+        interestRate: null,
+        minimumPayment: 100,
+        nextPaymentDate: new Date(),
+        lender: "Частное лицо",
+        isActive: true,
+      },
+    }),
+  ]);
+  console.log("✓ Добавлены тестовые долги");
+
   console.log("\n🎉 База данных заполнена успешно!");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log("Чистый старт: балансы = 0, добавьте свои данные через интерфейс.");

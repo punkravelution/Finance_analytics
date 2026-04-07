@@ -217,3 +217,22 @@ model Subscription {
 
   vault          Vault    @relation(fields: [vaultId], references: [id])
 }
+
+// ─── Долги / обязательства ────────────────────────────────────────────────────
+
+model Liability {
+  id             String   @id @default(cuid())
+  name           String
+  type           String   // credit_card | installment | loan | other
+  principalAmount Float
+  currentBalance Float
+  currency       String   @default("RUB")
+  interestRate   Float?
+  minimumPayment Float?
+  nextPaymentDate DateTime?
+  lender         String?
+  isActive       Boolean  @default(true)
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
