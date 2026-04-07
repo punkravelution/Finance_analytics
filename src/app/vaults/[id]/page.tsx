@@ -1,9 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
-  Vault,
   TrendingUp,
-  TrendingDown,
   Layers,
   ArrowLeftRight,
   Pencil,
@@ -14,6 +12,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { UpdateSteamPricesForm } from "@/components/assets/UpdateSteamPricesForm";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
 import { getVaultBalance, BALANCE_SOURCE_LABELS } from "@/lib/vaultBalance";
@@ -242,12 +241,15 @@ export default async function VaultDetailPage({ params }: Props) {
                 <Layers size={14} />
                 Активы в хранилище
               </CardTitle>
-              <Link
-                href={`/assets/new`}
-                className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-              >
-                + Добавить
-              </Link>
+              <div className="flex items-center gap-2">
+                {vault.type === "steam" && <UpdateSteamPricesForm />}
+                <Link
+                  href={`/assets/new`}
+                  className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  + Добавить
+                </Link>
+              </div>
             </div>
           </CardHeader>
           <CardContent>

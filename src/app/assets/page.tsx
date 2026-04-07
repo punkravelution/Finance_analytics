@@ -49,16 +49,13 @@ export default async function AssetsPage() {
             {assets.length} активов · Стоимость: {formatCurrency(totalValue)}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <UpdateSteamPricesForm />
-          <Link
-            href="/assets/new"
-            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            <Plus size={15} />
-            Добавить
-          </Link>
-        </div>
+        <Link
+          href="/assets/new"
+          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          <Plus size={15} />
+          Добавить
+        </Link>
       </div>
 
       {/* Сводка */}
@@ -103,13 +100,16 @@ export default async function AssetsPage() {
 
           return (
             <div key={vaultId}>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-base">{vault.icon ?? "🏦"}</span>
-                <h2 className="text-sm font-semibold text-slate-300">{vault.name}</h2>
-                <span className="text-xs text-slate-600">·</span>
-                <span className="text-sm text-slate-500 tabular-nums">
-                  {formatCurrency(vaultTotal, vault.currency)}
-                </span>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">{vault.icon ?? "🏦"}</span>
+                  <h2 className="text-sm font-semibold text-slate-300">{vault.name}</h2>
+                  <span className="text-xs text-slate-600">·</span>
+                  <span className="text-sm text-slate-500 tabular-nums">
+                    {formatCurrency(vaultTotal, vault.currency)}
+                  </span>
+                </div>
+                {vault.type === "steam" && <UpdateSteamPricesForm />}
               </div>
 
               <div className="space-y-2">
