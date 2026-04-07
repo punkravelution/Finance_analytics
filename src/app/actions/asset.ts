@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 export interface AssetActionState {
@@ -23,6 +24,15 @@ export interface SellAssetActionState {
   };
 }
 
+export interface UpdateSteamPricesResult {
+  updated: number;
+  failed: number;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function parseAssetFormData(formData: FormData) {
   const quantityStr = formData.get("quantity")?.toString() ?? "";
   const avgBuyStr = formData.get("averageBuyPrice")?.toString() ?? "";
@@ -37,6 +47,7 @@ function parseAssetFormData(formData: FormData) {
     assetType: formData.get("assetType")?.toString() ?? "",
     vaultId: formData.get("vaultId")?.toString() ?? "",
     ticker: formData.get("ticker")?.toString().trim() || null,
+    steamMarketHashName: formData.get("steamMarketHashName")?.toString() || null,
     quantity,
     unit: formData.get("unit")?.toString().trim() || "шт",
     averageBuyPrice:
@@ -88,8 +99,13 @@ export async function createAsset(
 
   try {
     await prisma.asset.create({ data });
-  } catch {
-    return { errors: { general: "Ошибка сохранения. Попробуйте ещё раз." } };
+  } catch (error) {
+    console.error("[createAsset] failed:", error);
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : "Ошибка сохранения. Попробуйте ещё раз.";
+    return { errors: { general: message } };
   }
 
   revalidatePath("/assets");
@@ -109,8 +125,13 @@ export async function updateAsset(
 
   try {
     await prisma.asset.update({ where: { id }, data });
-  } catch {
-    return { errors: { general: "Ошибка сохранения. Попробуйте ещё раз." } };
+  } catch (error) {
+    console.error("[updateAsset] failed:", error);
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : "Ошибка сохранения. Попробуйте ещё раз.";
+    return { errors: { general: message } };
   }
 
   revalidatePath("/assets");
@@ -236,4 +257,81 @@ export async function sellAsset(
   revalidatePath("/vaults");
   revalidatePath("/");
   redirect("/assets");
+}
+
+export async function updateSteamPrices(
+  _prev?: UpdateSteamPricesResult
+): Promise<UpdateSteamPricesResult> {
+  void _prev;
+  const requestHeaders = await headers();
+  const hostHeader = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+  const protoHeader = requestHeaders.get("x-forwarded-proto") ?? "http";
+  const host = hostHeader?.split(",")[0]?.trim();
+  const protocol = protoHeader.split(",")[0]?.trim() || "http";
+
+  const assets = await prisma.asset.findMany({
+    where: {
+      isActive: true,
+      steamMarketHashName: { not: null },
+    },
+    select: { id: true, steamMarketHashName: true, quantity: true },
+    orderBy: { name: "asc" },
+  });
+
+  let updated = 0;
+  let failed = 0;
+
+  for (const asset of assets) {
+    const hashName = asset.steamMarketHashName;
+    if (!hashName) continue;
+
+    try {
+      const endpoint = host
+        ? `${protocol}://${host}/api/steam-price?hash_name=${encodeURIComponent(hashName)}`
+        : `https://steamcommunity.com/market/priceoverview/?appid=730&currency=5&market_hash_name=${encodeURIComponent(hashName)}`;
+
+      const response = await fetch(endpoint, { cache: "no-store" });
+      if (!response.ok) throw new Error("Steam price request failed");
+
+      let price: number | null = null;
+      if (host) {
+        const json = (await response.json()) as { price: number | null };
+        price = json.price;
+      } else {
+        const json = (await response.json()) as {
+          lowest_price?: string;
+          median_price?: string;
+        };
+        const raw = (json.lowest_price ?? json.median_price ?? "")
+          .replace(/\s/g, "")
+          .replace(/[^\d,.-]/g, "")
+          .replace(",", ".");
+        const parsed = Number(raw);
+        price = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+      }
+
+      if (price == null || !Number.isFinite(price) || price <= 0) throw new Error("Price missing");
+
+      await prisma.asset.update({
+        where: { id: asset.id },
+        data: {
+          currentUnitPrice: price,
+          currentTotalValue: price * asset.quantity,
+          currency: "RUB",
+          lastUpdatedAt: new Date(),
+        },
+      });
+      updated += 1;
+    } catch {
+      failed += 1;
+    }
+
+    await sleep(3000);
+  }
+
+  revalidatePath("/assets");
+  revalidatePath("/");
+  revalidatePath("/vaults");
+
+  return { updated, failed };
 }

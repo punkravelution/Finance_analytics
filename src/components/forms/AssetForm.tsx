@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { AssetActionState } from "@/app/actions/asset";
 import { ASSET_TYPE_LABELS, type AssetType } from "@/types";
@@ -25,11 +25,13 @@ interface AssetFormProps {
   ) => Promise<AssetActionState>;
   vaults: VaultOption[];
   currencies: CurrencyOption[];
+  ratesToRub?: Record<string, number>;
   defaultValues?: {
     name?: string;
     assetType?: string;
     vaultId?: string;
     ticker?: string | null;
+    steamMarketHashName?: string | null;
     quantity?: number;
     unit?: string;
     averageBuyPrice?: number | null;
@@ -44,10 +46,30 @@ interface AssetFormProps {
 const inputClass =
   "w-full px-3 py-2.5 bg-[hsl(222,47%,10%)] border border-[hsl(216,34%,20%)] rounded-lg text-white placeholder-slate-600 text-sm focus:outline-none focus:border-blue-500 transition-colors";
 
+interface SteamSearchResult {
+  name: string;
+  hash_name: string;
+  price: string;
+}
+
+function parseSteamSearchPrice(rawPrice: string): { value: number; currency: string } | null {
+  if (!rawPrice) return null;
+
+  const normalized = rawPrice.replace(/\s/g, "").replace(",", ".");
+  const numeric = normalized.replace(/[^\d.-]/g, "");
+  const value = Number(numeric);
+  if (!Number.isFinite(value) || value <= 0) return null;
+
+  if (/\$|USD/i.test(rawPrice)) return { value, currency: "USD" };
+  if (/руб|₽|RUB/i.test(rawPrice)) return { value, currency: "RUB" };
+  return null;
+}
+
 export function AssetForm({
   action,
   vaults,
   currencies,
+  ratesToRub = {},
   defaultValues = {},
   cancelHref,
   submitLabel = "Сохранить",
@@ -58,6 +80,9 @@ export function AssetForm({
   const [assetType, setAssetType] = useState(defaultValues.assetType ?? "");
   const [vaultId, setVaultId] = useState(defaultValues.vaultId ?? "");
   const [ticker, setTicker] = useState(defaultValues.ticker ?? "");
+  const [steamMarketHashName, setSteamMarketHashName] = useState(
+    defaultValues.steamMarketHashName ?? ""
+  );
   const [quantity, setQuantity] = useState(
     defaultValues.quantity != null ? String(defaultValues.quantity) : ""
   );
@@ -77,6 +102,151 @@ export function AssetForm({
     vaults.find((v) => v.id === vaultId)?.currency ?? "RUB";
 
   const [notes, setNotes] = useState(defaultValues.notes ?? "");
+  const [steamOptions, setSteamOptions] = useState<SteamSearchResult[]>([]);
+  const [searchingSteam, setSearchingSteam] = useState(false);
+  const [updatingSteamPrice, setUpdatingSteamPrice] = useState(false);
+  const [steamRubUnitPrice, setSteamRubUnitPrice] = useState<number | null>(null);
+  const isSteamItem = assetType === "item";
+  const canRefreshSteamPrice = isSteamItem && steamMarketHashName.length > 0;
+
+  useEffect(() => {
+    if (!isSteamItem) {
+      setSteamOptions([]);
+      setSteamMarketHashName("");
+      setSteamRubUnitPrice(null);
+    }
+  }, [isSteamItem]);
+
+  useEffect(() => {
+    if (!isSteamItem || !defaultValues.steamMarketHashName) return;
+
+    const current = defaultValues.currentUnitPrice;
+    const currentCurrency = (defaultValues.currency ?? "RUB").toUpperCase();
+    if (current == null || !Number.isFinite(current) || current <= 0) return;
+
+    if (currentCurrency === "RUB") {
+      setSteamRubUnitPrice(current);
+      return;
+    }
+
+    const rateToRub = ratesToRub[currentCurrency];
+    if (rateToRub && rateToRub > 0) {
+      setSteamRubUnitPrice(current * rateToRub);
+    }
+  }, [defaultValues.currentUnitPrice, defaultValues.currency, defaultValues.steamMarketHashName, isSteamItem, ratesToRub]);
+
+  useEffect(() => {
+    if (!isSteamItem || name.trim().length < 3) {
+      setSteamOptions([]);
+      setSearchingSteam(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setSearchingSteam(true);
+      try {
+        const response = await fetch(`/api/steam-search?q=${encodeURIComponent(name.trim())}`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          setSteamOptions([]);
+          return;
+        }
+        const results = (await response.json()) as SteamSearchResult[];
+        setSteamOptions(Array.isArray(results) ? results : []);
+      } catch {
+        setSteamOptions([]);
+      } finally {
+        setSearchingSteam(false);
+      }
+    }, 500);
+
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [isSteamItem, name]);
+
+  const steamHint = useMemo(() => {
+    if (!isSteamItem) return "";
+    if (searchingSteam) return "Поиск предметов Steam...";
+    if (name.trim().length < 3) return "Введите минимум 3 символа для поиска в Steam";
+    return "";
+  }, [isSteamItem, name, searchingSteam]);
+
+  async function updateSteamPriceByHash(hashName: string): Promise<boolean> {
+    setUpdatingSteamPrice(true);
+    try {
+      const response = await fetch(
+        `/api/steam-price?hash_name=${encodeURIComponent(hashName)}`,
+        { cache: "no-store" }
+      );
+      if (!response.ok) return false;
+      const json = (await response.json()) as { price: number | null };
+      if (typeof json.price === "number" && Number.isFinite(json.price) && json.price > 0) {
+        setSteamRubUnitPrice(json.price);
+        if (currency === "RUB") {
+          setCurrentUnitPrice(String(json.price));
+        } else {
+          const rateToRub = ratesToRub[currency];
+          if (rateToRub && rateToRub > 0) {
+            setCurrentUnitPrice(String(json.price / rateToRub));
+          } else {
+            setCurrentUnitPrice(String(json.price));
+            setCurrency("RUB");
+          }
+        }
+        return true;
+      }
+      return false;
+    } catch {
+      // Без всплывающих ошибок: просто оставляем текущее значение.
+      return false;
+    } finally {
+      setUpdatingSteamPrice(false);
+    }
+  }
+
+  async function selectSteamItem(item: SteamSearchResult) {
+    setName(item.name);
+    setSteamMarketHashName(item.hash_name);
+    setSteamOptions([]);
+    const updatedFromSteam = await updateSteamPriceByHash(item.hash_name);
+
+    if (!updatedFromSteam) {
+      const parsed = parseSteamSearchPrice(item.price);
+      if (!parsed) return;
+
+      if (parsed.currency === "RUB") {
+        setSteamRubUnitPrice(parsed.value);
+      } else {
+        const rateToRub = ratesToRub[parsed.currency];
+        if (rateToRub && rateToRub > 0) {
+          setSteamRubUnitPrice(parsed.value * rateToRub);
+        }
+      }
+
+      setCurrency(parsed.currency);
+      setCurrentUnitPrice(String(parsed.value));
+    }
+  }
+
+  function handleCurrencyChange(nextCurrency: string) {
+    setCurrency(nextCurrency);
+
+    if (!isSteamItem || !steamMarketHashName || steamRubUnitPrice == null) return;
+
+    if (nextCurrency === "RUB") {
+      setCurrentUnitPrice(String(steamRubUnitPrice));
+      return;
+    }
+
+    const rateToRub = ratesToRub[nextCurrency];
+    if (rateToRub && rateToRub > 0) {
+      setCurrentUnitPrice(String(steamRubUnitPrice / rateToRub));
+    }
+  }
 
   return (
     <form action={formAction} className="space-y-5">
@@ -99,6 +269,26 @@ export function AssetForm({
           placeholder="Например: Сбербанк, Bitcoin, ОФЗ 26238"
           className={inputClass}
         />
+        {isSteamItem && (
+          <div className="mt-2 space-y-1">
+            {steamHint && <p className="text-xs text-slate-500">{steamHint}</p>}
+            {steamOptions.length > 0 && (
+              <div className="max-h-48 overflow-y-auto rounded-lg border border-[hsl(216,34%,20%)] bg-[hsl(222,47%,10%)]">
+                {steamOptions.map((item) => (
+                  <button
+                    key={item.hash_name}
+                    type="button"
+                    onClick={() => void selectSteamItem(item)}
+                    className="w-full px-3 py-2 text-left hover:bg-[hsl(216,34%,16%)] border-b last:border-b-0 border-[hsl(216,34%,17%)]"
+                  >
+                    <p className="text-sm text-white truncate">{item.name}</p>
+                    <p className="text-xs text-slate-500">{item.price || "Цена недоступна"}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {state.errors?.name && (
           <p className="mt-1 text-xs text-red-400">{state.errors.name}</p>
         )}
@@ -244,8 +434,20 @@ export function AssetForm({
             placeholder="0.00"
             className={inputClass}
           />
+          {canRefreshSteamPrice && (
+            <button
+              type="button"
+              onClick={() => void updateSteamPriceByHash(steamMarketHashName)}
+              disabled={updatingSteamPrice}
+              className="mt-2 text-xs text-violet-400 hover:text-violet-300 disabled:opacity-50 transition-colors"
+            >
+              {updatingSteamPrice ? "Обновляем цену..." : "Обновить цену"}
+            </button>
+          )}
         </div>
       </div>
+
+      <input name="steamMarketHashName" type="hidden" value={steamMarketHashName} />
 
       {/* Валюта */}
       <div>
@@ -255,7 +457,7 @@ export function AssetForm({
         <select
           name="currency"
           value={currency}
-          onChange={(e) => setCurrency(e.target.value)}
+          onChange={(e) => handleCurrencyChange(e.target.value)}
           className={inputClass}
         >
           {currencies.map((c) => (
@@ -269,7 +471,7 @@ export function AssetForm({
         </p>
         <button
           type="button"
-          onClick={() => setCurrency(selectedVaultCurrency)}
+          onClick={() => handleCurrencyChange(selectedVaultCurrency)}
           className="mt-2 text-xs text-blue-400 hover:text-blue-300 transition-colors"
         >
           Подставить валюту хранилища

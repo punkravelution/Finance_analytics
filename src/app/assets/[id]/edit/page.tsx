@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AssetForm } from "@/components/forms/AssetForm";
 import { prisma } from "@/lib/prisma";
 import { updateAsset, deleteAsset, permanentlyDeleteAsset } from "@/app/actions/asset";
+import { getExchangeRates } from "@/lib/currency";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ interface Props {
 export default async function EditAssetPage({ params }: Props) {
   const { id } = await params;
 
-  const [asset, vaults, currencies] = await Promise.all([
+  const [asset, vaults, currencies, rates] = await Promise.all([
     prisma.asset.findUnique({ where: { id } }),
     prisma.vault.findMany({
       where: { isActive: true },
@@ -27,6 +28,7 @@ export default async function EditAssetPage({ params }: Props) {
       select: { code: true, name: true, symbol: true },
       orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
     }),
+    getExchangeRates(),
   ]);
 
   if (!asset || !asset.isActive) notFound();
@@ -34,6 +36,14 @@ export default async function EditAssetPage({ params }: Props) {
   const action = updateAsset.bind(null, id);
   const deleteAction = deleteAsset.bind(null, id);
   const hardDeleteAction = permanentlyDeleteAsset.bind(null, id);
+  const ratesToRub = currencies.reduce<Record<string, number>>((acc, currency) => {
+    if (currency.code === "RUB") return acc;
+    const rate = rates[currency.code]?.RUB;
+    if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
+      acc[currency.code] = rate;
+    }
+    return acc;
+  }, {});
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -54,6 +64,7 @@ export default async function EditAssetPage({ params }: Props) {
             action={action}
             vaults={vaults}
             currencies={currencies}
+            ratesToRub={ratesToRub}
             cancelHref={`/assets/${id}`}
             submitLabel="Сохранить изменения"
             defaultValues={{
@@ -61,6 +72,7 @@ export default async function EditAssetPage({ params }: Props) {
               assetType: asset.assetType,
               vaultId: asset.vaultId,
               ticker: asset.ticker,
+              steamMarketHashName: asset.steamMarketHashName,
               quantity: asset.quantity,
               unit: asset.unit,
               averageBuyPrice: asset.averageBuyPrice,

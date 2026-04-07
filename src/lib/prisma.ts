@@ -1,6 +1,5 @@
 import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import path from "path";
 
 function createPrismaClient() {
   const dbUrl = process.env.DATABASE_URL ?? "file:./dev.db";
@@ -10,8 +9,13 @@ function createPrismaClient() {
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
+  prismaSchemaV2: PrismaClient | undefined;
 };
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+// Use a versioned global slot to avoid stale Prisma client shape
+// after schema changes during dev server hot reload.
+export const prisma = globalForPrisma.prismaSchemaV2 ?? createPrismaClient();
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prismaSchemaV2 = prisma;
+}

@@ -4,7 +4,8 @@ import { formatCurrency, formatNumber, formatDate } from "@/lib/format";
 import { ASSET_TYPE_LABELS, type AssetType } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Minus, Plus } from "lucide-react";
+import { TrendingUp, Plus } from "lucide-react";
+import { UpdateSteamPricesForm } from "@/components/assets/UpdateSteamPricesForm";
 
 export const dynamic = "force-dynamic";
 
@@ -48,13 +49,16 @@ export default async function AssetsPage() {
             {assets.length} активов · Стоимость: {formatCurrency(totalValue)}
           </p>
         </div>
-        <Link
-          href="/assets/new"
-          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
-        >
-          <Plus size={15} />
-          Добавить
-        </Link>
+        <div className="flex items-center gap-2">
+          <UpdateSteamPricesForm />
+          <Link
+            href="/assets/new"
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            <Plus size={15} />
+            Добавить
+          </Link>
+        </div>
       </div>
 
       {/* Сводка */}
