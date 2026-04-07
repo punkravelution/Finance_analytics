@@ -89,13 +89,21 @@ export default async function AssetDetailPage({ params }: Props) {
           </div>
         </div>
 
-        <Link
-          href={`/assets/${id}/edit`}
-          className="flex items-center gap-1.5 px-4 py-2 bg-[hsl(222,47%,12%)] hover:bg-[hsl(222,47%,16%)] border border-[hsl(216,34%,20%)] rounded-lg text-sm text-slate-300 transition-colors"
-        >
-          <Pencil size={14} />
-          Редактировать
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/assets/${id}/sell`}
+            className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 rounded-lg text-sm text-emerald-300 transition-colors"
+          >
+            Продать
+          </Link>
+          <Link
+            href={`/assets/${id}/edit`}
+            className="flex items-center gap-1.5 px-4 py-2 bg-[hsl(222,47%,12%)] hover:bg-[hsl(222,47%,16%)] border border-[hsl(216,34%,20%)] rounded-lg text-sm text-slate-300 transition-colors"
+          >
+            <Pencil size={14} />
+            Редактировать
+          </Link>
+        </div>
       </div>
 
       {/* Основные метрики */}

@@ -5,6 +5,7 @@ import { TRANSACTION_TYPE_LABELS } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeftRight, Plus } from "lucide-react";
+import { deleteTransaction } from "@/app/actions/transaction";
 
 export const dynamic = "force-dynamic";
 
@@ -162,11 +163,16 @@ export default async function TransactionsPage() {
               <Card>
                 <CardContent className="p-0">
                   <div className="divide-y divide-[hsl(216,34%,13%)]">
-                    {txs.map((tx) => (
-                      <Link
+                    {txs.map((tx) => {
+                      const deleteAction = deleteTransaction.bind(null, tx.id);
+                      return (
+                      <div
                         key={tx.id}
+                        className="flex items-center gap-2 px-2 py-2 hover:bg-[hsl(216,34%,10%)] transition-colors"
+                      >
+                      <Link
                         href={`/transactions/${tx.id}/edit`}
-                        className="flex items-center gap-3 px-4 py-3 hover:bg-[hsl(216,34%,10%)] transition-colors"
+                        className="flex items-center gap-3 px-2 py-1 flex-1 min-w-0"
                       >
                         {/* Иконка */}
                         <div className="w-8 h-8 rounded-lg bg-[hsl(216,34%,15%)] flex items-center justify-center text-sm flex-shrink-0">
@@ -234,7 +240,16 @@ export default async function TransactionsPage() {
                           </Badge>
                         </div>
                       </Link>
-                    ))}
+                      <form action={deleteAction}>
+                        <button
+                          type="submit"
+                          className="px-2.5 py-1.5 text-[11px] rounded-md border border-red-500/30 text-red-400 hover:text-red-300 hover:border-red-500/50 transition-colors"
+                        >
+                          Удалить
+                        </button>
+                      </form>
+                      </div>
+                    )})}
                   </div>
                 </CardContent>
               </Card>

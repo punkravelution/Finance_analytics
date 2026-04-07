@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AssetForm } from "@/components/forms/AssetForm";
 import { prisma } from "@/lib/prisma";
-import { updateAsset, deleteAsset } from "@/app/actions/asset";
+import { updateAsset, deleteAsset, permanentlyDeleteAsset } from "@/app/actions/asset";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export default async function EditAssetPage({ params }: Props) {
 
   const action = updateAsset.bind(null, id);
   const deleteAction = deleteAsset.bind(null, id);
+  const hardDeleteAction = permanentlyDeleteAsset.bind(null, id);
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -64,20 +66,57 @@ export default async function EditAssetPage({ params }: Props) {
         </CardContent>
       </Card>
 
-      {/* Удаление */}
-      <div className="mt-8 p-4 border border-red-500/20 rounded-xl bg-red-500/5">
-        <h3 className="text-sm font-medium text-red-400 mb-2">Опасная зона</h3>
-        <p className="text-xs text-slate-500 mb-3">
-          Актив будет скрыт из интерфейса (не удалён из базы данных).
+      {/* Управление жизненным циклом */}
+      <div className="mt-8 p-4 border border-amber-500/20 rounded-xl bg-amber-500/5">
+        <h3 className="text-sm font-medium text-amber-300 mb-2">Управление активом</h3>
+        <p className="text-xs text-slate-500 mb-4">
+          Выберите действие в зависимости от сценария: скрыть, удалить ошибку или продать.
         </p>
-        <form action={deleteAction}>
-          <button
-            type="submit"
-            className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-500/40 text-red-400 rounded-lg text-sm font-medium transition-colors"
+
+        <div className="flex flex-wrap gap-2 mb-4">
+          <Link
+            href={`/assets/${id}/sell`}
+            className="px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 rounded-lg text-sm font-medium transition-colors"
           >
-            Деактивировать актив
-          </button>
-        </form>
+            Продать / вывести из портфеля
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="p-3 rounded-lg border border-[hsl(216,34%,20%)] bg-[hsl(222,47%,9%)]">
+            <p className="text-sm text-slate-200 mb-1">Скрыть из интерфейса</p>
+            <p className="text-xs text-slate-500 mb-3">
+              Актив останется в базе и может быть восстановлен позже.
+            </p>
+            <form action={deleteAction}>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-slate-700/40 hover:bg-slate-700/60 border border-slate-500/40 text-slate-300 rounded-lg text-sm font-medium transition-colors"
+              >
+                Скрыть из интерфейса
+              </button>
+            </form>
+          </div>
+
+          <div className="p-3 rounded-lg border border-red-500/20 bg-red-500/5">
+            <p className="text-sm text-red-300 mb-1">Удалить ошибочно созданный актив</p>
+            <p className="text-xs text-slate-500 mb-3">
+              Полное удаление из базы. Используйте только для ошибочных записей.
+            </p>
+            <form action={hardDeleteAction}>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-500/40 text-red-400 rounded-lg text-sm font-medium transition-colors"
+              >
+                Удалить ошибочно созданный актив
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <p className="text-xs text-slate-600 mt-3">
+          Важно: продажа и удаление — разные действия. Для продажи используйте отдельную кнопку.
+        </p>
       </div>
     </div>
   );
