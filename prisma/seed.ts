@@ -383,6 +383,71 @@ async function main() {
 
   console.log("✓ Базовая валюта установлена: RUB");
 
+  // ─── Подписки ────────────────────────────────────────────────────────────────
+  await Promise.all([
+    prisma.subscription.upsert({
+      where: { id: "sub-cursor" },
+      update: {},
+      create: {
+        id: "sub-cursor",
+        name: "Cursor Pro",
+        amount: 20,
+        currency: "USD",
+        billingPeriod: "monthly",
+        nextChargeDate: new Date(),
+        category: "AI инструменты",
+        vaultId: tbank.id,
+        isEssential: true,
+      },
+    }),
+    prisma.subscription.upsert({
+      where: { id: "sub-chatgpt" },
+      update: {},
+      create: {
+        id: "sub-chatgpt",
+        name: "ChatGPT Plus",
+        amount: 20,
+        currency: "USD",
+        billingPeriod: "monthly",
+        nextChargeDate: new Date(),
+        category: "AI инструменты",
+        vaultId: tbank.id,
+        isEssential: false,
+      },
+    }),
+    prisma.subscription.upsert({
+      where: { id: "sub-spotify" },
+      update: {},
+      create: {
+        id: "sub-spotify",
+        name: "Spotify",
+        amount: 199,
+        currency: "RUB",
+        billingPeriod: "monthly",
+        nextChargeDate: new Date(),
+        category: "Развлечения",
+        vaultId: sberbank.id,
+        isEssential: false,
+      },
+    }),
+    prisma.subscription.upsert({
+      where: { id: "sub-mobile" },
+      update: {},
+      create: {
+        id: "sub-mobile",
+        name: "Мобильная связь",
+        amount: 650,
+        currency: "RUB",
+        billingPeriod: "monthly",
+        nextChargeDate: new Date(),
+        category: "Связь",
+        vaultId: sberbank.id,
+        isEssential: true,
+      },
+    }),
+  ]);
+  console.log("✓ Добавлены тестовые подписки");
+
   console.log("\n🎉 База данных заполнена успешно!");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log("Чистый старт: балансы = 0, добавьте свои данные через интерфейс.");

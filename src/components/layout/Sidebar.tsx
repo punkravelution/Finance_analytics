@@ -7,6 +7,7 @@ import {
   Vault,
   TrendingUp,
   ArrowLeftRight,
+  RefreshCcw,
   BarChart2,
   Coins,
   Settings,
@@ -18,6 +19,7 @@ const navItems = [
   { href: "/vaults", label: "Хранилища", icon: Vault },
   { href: "/assets", label: "Активы", icon: TrendingUp },
   { href: "/transactions", label: "Операции", icon: ArrowLeftRight },
+  { href: "/subscriptions", label: "Подписки", icon: RefreshCcw },
   { href: "/analytics", label: "Аналитика", icon: BarChart2 },
   { href: "/currencies", label: "Валюты", icon: Coins },
 ];

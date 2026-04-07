@@ -49,6 +49,7 @@ model Vault {
   relationsFrom    VaultRelation[] @relation("RelationFrom")
   relationsTo      VaultRelation[] @relation("RelationTo")
   snapshots        VaultSnapshot[]
+  subscriptions    Subscription[]
 }
 
 // ─── Актив внутри хранилища ───────────────────────────────────────────────────
@@ -195,4 +196,24 @@ model AppSettings {
   value     String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─── Подписки / регулярные платежи ────────────────────────────────────────────
+
+model Subscription {
+  id             String   @id @default(cuid())
+  name           String
+  amount         Float
+  currency       String   @default("RUB")
+  billingPeriod  String   // monthly | quarterly | yearly
+  nextChargeDate DateTime
+  category       String
+  vaultId        String
+  isEssential    Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  vault          Vault    @relation(fields: [vaultId], references: [id])
 }
