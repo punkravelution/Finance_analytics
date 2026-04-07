@@ -172,6 +172,12 @@ export default async function VaultDetailPage({ params }: Props) {
               >
                 Риск: {RISK_LABELS[vault.riskLevel as RiskLevel]}
               </Badge>
+              {vault.includeInSpendableBalance && (
+                <Badge variant="success">Доступный баланс</Badge>
+              )}
+              {vault.includeInLiquidCapital && !vault.includeInSpendableBalance && (
+                <Badge variant="info">Ликвидный капитал</Badge>
+              )}
               {!vault.includeInNetWorth && (
                 <Badge variant="default">Не в капитале</Badge>
               )}

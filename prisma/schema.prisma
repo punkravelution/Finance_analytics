@@ -26,8 +26,10 @@ model Vault {
   name             String
   type             String         // bank | cash | crypto | investment | deposit | steam | property | other
   currency         String         @default("RUB")
-  isActive         Boolean        @default(true)
-  includeInNetWorth Boolean       @default(true)
+  isActive                  Boolean  @default(true)
+  includeInNetWorth         Boolean  @default(true)
+  includeInSpendableBalance Boolean  @default(true)
+  includeInLiquidCapital    Boolean  @default(true)
   liquidityLevel   String         @default("medium") // high | medium | low | illiquid
   riskLevel        String         @default("low")    // none | low | medium | high | extreme
   valuationMode    String         @default("manual") // manual | auto | formula

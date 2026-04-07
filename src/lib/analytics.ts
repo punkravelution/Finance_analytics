@@ -60,19 +60,42 @@ export async function calcNetWorth(): Promise<number> {
   return total;
 }
 
-export async function calcLiquidCash(): Promise<number> {
+export async function calcSpendableBalance(): Promise<number> {
   const [baseCurrency, rates] = await Promise.all([
     getBaseCurrency(),
     getExchangeRates(),
   ]);
 
   const vaults = await prisma.vault.findMany({
-    where: {
-      isActive: true,
-      includeInNetWorth: true,
-      type: { in: ["bank", "cash"] },
-      liquidityLevel: { in: ["high", "medium"] },
+    where: { isActive: true, includeInSpendableBalance: true },
+    include: {
+      snapshots: { orderBy: { date: "desc" }, take: 1 },
+      assets: { where: { isActive: true } },
     },
+  });
+
+  let total = 0;
+  for (const vault of vaults) {
+    const lastSnapshot = vault.snapshots[0];
+    if (lastSnapshot) {
+      total += toBase(lastSnapshot.balance, lastSnapshot.currency, baseCurrency, rates);
+    } else {
+      for (const asset of vault.assets) {
+        total += toBase(asset.currentTotalValue ?? 0, asset.currency, baseCurrency, rates);
+      }
+    }
+  }
+  return total;
+}
+
+export async function calcLiquidCapital(): Promise<number> {
+  const [baseCurrency, rates] = await Promise.all([
+    getBaseCurrency(),
+    getExchangeRates(),
+  ]);
+
+  const vaults = await prisma.vault.findMany({
+    where: { isActive: true, includeInLiquidCapital: true },
     include: {
       snapshots: { orderBy: { date: "desc" }, take: 1 },
       assets: { where: { isActive: true } },
@@ -183,7 +206,6 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   });
 
   let totalNetWorth = 0;
-  let liquidCash = 0;
   let totalInvestments = 0;
 
   for (const vault of vaultsForNetWorth) {
@@ -200,15 +222,48 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
     totalNetWorth += vaultValueInBase;
 
-    if (
-      ["bank", "cash"].includes(vault.type) &&
-      ["high", "medium"].includes(vault.liquidityLevel)
-    ) {
-      liquidCash += vaultValueInBase;
-    }
-
     if (["investment", "crypto", "deposit"].includes(vault.type)) {
       totalInvestments += vaultValueInBase;
+    }
+  }
+
+  // Доступный баланс — по флагу includeInSpendableBalance
+  const spendableVaults = await prisma.vault.findMany({
+    where: { isActive: true, includeInSpendableBalance: true },
+    include: {
+      snapshots: { orderBy: { date: "desc" }, take: 1 },
+      assets: { where: { isActive: true } },
+    },
+  });
+  let spendableBalance = 0;
+  for (const vault of spendableVaults) {
+    const lastSnapshot = vault.snapshots[0];
+    if (lastSnapshot) {
+      spendableBalance += toBase(lastSnapshot.balance, lastSnapshot.currency, baseCurrency, rates);
+    } else {
+      for (const asset of vault.assets) {
+        spendableBalance += toBase(asset.currentTotalValue ?? 0, asset.currency, baseCurrency, rates);
+      }
+    }
+  }
+
+  // Ликвидный капитал — по флагу includeInLiquidCapital
+  const liquidVaults = await prisma.vault.findMany({
+    where: { isActive: true, includeInLiquidCapital: true },
+    include: {
+      snapshots: { orderBy: { date: "desc" }, take: 1 },
+      assets: { where: { isActive: true } },
+    },
+  });
+  let liquidCapital = 0;
+  for (const vault of liquidVaults) {
+    const lastSnapshot = vault.snapshots[0];
+    if (lastSnapshot) {
+      liquidCapital += toBase(lastSnapshot.balance, lastSnapshot.currency, baseCurrency, rates);
+    } else {
+      for (const asset of vault.assets) {
+        liquidCapital += toBase(asset.currentTotalValue ?? 0, asset.currency, baseCurrency, rates);
+      }
     }
   }
 
@@ -259,7 +314,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
   return {
     totalNetWorth,
-    liquidCash,
+    spendableBalance,
+    liquidCapital,
     monthlyIncome,
     monthlyExpenses,
     monthlySavings,

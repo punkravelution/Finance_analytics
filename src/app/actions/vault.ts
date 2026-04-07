@@ -20,6 +20,8 @@ function parseVaultFormData(formData: FormData) {
     liquidityLevel: formData.get("liquidityLevel")?.toString() || "medium",
     riskLevel: formData.get("riskLevel")?.toString() || "low",
     includeInNetWorth: formData.get("includeInNetWorth") === "on",
+    includeInSpendableBalance: formData.get("includeInSpendableBalance") === "on",
+    includeInLiquidCapital: formData.get("includeInLiquidCapital") === "on",
     notes: formData.get("notes")?.toString().trim() || null,
   };
 }

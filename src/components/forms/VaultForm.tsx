@@ -24,6 +24,8 @@ interface VaultFormProps {
     liquidityLevel?: string;
     riskLevel?: string;
     includeInNetWorth?: boolean;
+    includeInSpendableBalance?: boolean;
+    includeInLiquidCapital?: boolean;
     notes?: string;
   };
   cancelHref: string;
@@ -50,6 +52,12 @@ export function VaultForm({
   const [riskLevel, setRiskLevel] = useState(defaultValues.riskLevel ?? "low");
   const [includeInNetWorth, setIncludeInNetWorth] = useState(
     defaultValues.includeInNetWorth !== false
+  );
+  const [includeInSpendableBalance, setIncludeInSpendableBalance] = useState(
+    defaultValues.includeInSpendableBalance !== false
+  );
+  const [includeInLiquidCapital, setIncludeInLiquidCapital] = useState(
+    defaultValues.includeInLiquidCapital !== false
   );
   const [notes, setNotes] = useState(defaultValues.notes ?? "");
 
@@ -165,19 +173,51 @@ export function VaultForm({
         </div>
       </div>
 
-      {/* Включать в капитал */}
-      <div className="flex items-center gap-3">
-        <input
-          name="includeInNetWorth"
-          type="checkbox"
-          id="includeInNetWorth"
-          checked={includeInNetWorth}
-          onChange={(e) => setIncludeInNetWorth(e.target.checked)}
-          className="w-4 h-4 rounded border-slate-600 accent-blue-500"
-        />
-        <label htmlFor="includeInNetWorth" className="text-sm text-slate-300">
-          Включать в расчёт капитала
-        </label>
+      {/* Режимы участия в балансе */}
+      <div className="space-y-2.5">
+        <p className="text-sm font-medium text-slate-400">Режимы баланса</p>
+        <div className="flex items-center gap-3">
+          <input
+            name="includeInSpendableBalance"
+            type="checkbox"
+            id="includeInSpendableBalance"
+            checked={includeInSpendableBalance}
+            onChange={(e) => setIncludeInSpendableBalance(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-600 accent-blue-500"
+          />
+          <label htmlFor="includeInSpendableBalance" className="text-sm text-slate-300">
+            Доступный баланс{" "}
+            <span className="text-slate-500 text-xs">(банк, наличные — средства к трате)</span>
+          </label>
+        </div>
+        <div className="flex items-center gap-3">
+          <input
+            name="includeInLiquidCapital"
+            type="checkbox"
+            id="includeInLiquidCapital"
+            checked={includeInLiquidCapital}
+            onChange={(e) => setIncludeInLiquidCapital(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-600 accent-blue-500"
+          />
+          <label htmlFor="includeInLiquidCapital" className="text-sm text-slate-300">
+            Ликвидный капитал{" "}
+            <span className="text-slate-500 text-xs">(можно конвертировать в деньги)</span>
+          </label>
+        </div>
+        <div className="flex items-center gap-3">
+          <input
+            name="includeInNetWorth"
+            type="checkbox"
+            id="includeInNetWorth"
+            checked={includeInNetWorth}
+            onChange={(e) => setIncludeInNetWorth(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-600 accent-blue-500"
+          />
+          <label htmlFor="includeInNetWorth" className="text-sm text-slate-300">
+            Общий капитал{" "}
+            <span className="text-slate-500 text-xs">(учитывать в суммарном net worth)</span>
+          </label>
+        </div>
       </div>
 
       {/* Заметки */}

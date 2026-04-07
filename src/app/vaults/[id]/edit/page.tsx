@@ -46,6 +46,8 @@ export default async function EditVaultPage({ params }: Props) {
               liquidityLevel: vault.liquidityLevel,
               riskLevel: vault.riskLevel,
               includeInNetWorth: vault.includeInNetWorth,
+              includeInSpendableBalance: vault.includeInSpendableBalance,
+              includeInLiquidCapital: vault.includeInLiquidCapital,
               notes: vault.notes ?? undefined,
             }}
           />

@@ -97,11 +97,17 @@ export default async function HomePage() {
               <span className="text-xs text-slate-600">за 30 дней</span>
             </div>
           </div>
-          <div className="flex items-center gap-6 mt-4 pt-4 border-t border-[hsl(216,34%,15%)]">
+          <div className="flex items-center gap-6 mt-4 pt-4 border-t border-[hsl(216,34%,15%)] flex-wrap">
             <div>
-              <p className="text-[11px] text-slate-600">Ликвидных</p>
-              <p className="text-sm font-semibold text-slate-300">
-                {formatCurrency(stats.liquidCash)}
+              <p className="text-[11px] text-slate-600">Доступный баланс</p>
+              <p className="text-sm font-semibold text-green-400">
+                {formatCurrency(stats.spendableBalance)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] text-slate-600">Ликвидный капитал</p>
+              <p className="text-sm font-semibold text-cyan-400">
+                {formatCurrency(stats.liquidCapital)}
               </p>
             </div>
             <div>

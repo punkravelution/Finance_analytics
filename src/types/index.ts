@@ -111,7 +111,8 @@ export const VAULT_RELATION_TYPE_LABELS: Record<VaultRelationType, string> = {
 
 export interface DashboardStats {
   totalNetWorth: number;
-  liquidCash: number;
+  spendableBalance: number;
+  liquidCapital: number;
   monthlyIncome: number;
   monthlyExpenses: number;
   monthlySavings: number;

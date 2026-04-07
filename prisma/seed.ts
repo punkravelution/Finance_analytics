@@ -61,9 +61,10 @@ async function main() {
   console.log(`✓ Создано категорий: ${categories.length}`);
 
   // ─── Хранилища (Vaults) ─────────────────────────────────────────────────────
+  // bank — доступный + ликвидный + общий
   const sberbank = await prisma.vault.upsert({
     where: { id: "vault-sber" },
-    update: {},
+    update: { includeInSpendableBalance: true, includeInLiquidCapital: true },
     create: {
       id: "vault-sber",
       name: "Сбербанк",
@@ -74,12 +75,15 @@ async function main() {
       color: "#22c55e",
       icon: "🏦",
       sortOrder: 1,
+      includeInSpendableBalance: true,
+      includeInLiquidCapital: true,
     },
   });
 
+  // bank — доступный + ликвидный + общий
   const tbank = await prisma.vault.upsert({
     where: { id: "vault-tbank" },
-    update: {},
+    update: { includeInSpendableBalance: true, includeInLiquidCapital: true },
     create: {
       id: "vault-tbank",
       name: "Т-Банк",
@@ -90,12 +94,15 @@ async function main() {
       color: "#facc15",
       icon: "💳",
       sortOrder: 2,
+      includeInSpendableBalance: true,
+      includeInLiquidCapital: true,
     },
   });
 
+  // cash — доступный + ликвидный + общий
   const cash = await prisma.vault.upsert({
     where: { id: "vault-cash" },
-    update: {},
+    update: { includeInSpendableBalance: true, includeInLiquidCapital: true },
     create: {
       id: "vault-cash",
       name: "Наличные",
@@ -106,12 +113,15 @@ async function main() {
       color: "#84cc16",
       icon: "💵",
       sortOrder: 3,
+      includeInSpendableBalance: true,
+      includeInLiquidCapital: true,
     },
   });
 
+  // investment — не доступный, но ликвидный + общий
   const investVault = await prisma.vault.upsert({
     where: { id: "vault-invest" },
-    update: {},
+    update: { includeInSpendableBalance: false, includeInLiquidCapital: true },
     create: {
       id: "vault-invest",
       name: "Брокерский счёт",
@@ -123,12 +133,15 @@ async function main() {
       color: "#3b82f6",
       icon: "📈",
       sortOrder: 4,
+      includeInSpendableBalance: false,
+      includeInLiquidCapital: true,
     },
   });
 
+  // crypto — не доступный, но ликвидный + общий
   const cryptoVault = await prisma.vault.upsert({
     where: { id: "vault-crypto" },
-    update: {},
+    update: { includeInSpendableBalance: false, includeInLiquidCapital: true },
     create: {
       id: "vault-crypto",
       name: "Криптокошелёк",
@@ -140,12 +153,15 @@ async function main() {
       color: "#f97316",
       icon: "₿",
       sortOrder: 5,
+      includeInSpendableBalance: false,
+      includeInLiquidCapital: true,
     },
   });
 
+  // deposit — не доступный, не ликвидный, только общий
   const deposit = await prisma.vault.upsert({
     where: { id: "vault-deposit" },
-    update: {},
+    update: { includeInSpendableBalance: false, includeInLiquidCapital: false },
     create: {
       id: "vault-deposit",
       name: "Вклад 15%",
@@ -157,12 +173,15 @@ async function main() {
       icon: "🏧",
       notes: "Вклад на 12 месяцев под 15% годовых",
       sortOrder: 6,
+      includeInSpendableBalance: false,
+      includeInLiquidCapital: false,
     },
   });
 
+  // steam — не доступный, не ликвидный, только общий капитал
   const steam = await prisma.vault.upsert({
     where: { id: "vault-steam" },
-    update: {},
+    update: { includeInSpendableBalance: false, includeInLiquidCapital: false },
     create: {
       id: "vault-steam",
       name: "Steam-инвентарь",
@@ -173,6 +192,8 @@ async function main() {
       color: "#6366f1",
       icon: "🎮",
       sortOrder: 7,
+      includeInSpendableBalance: false,
+      includeInLiquidCapital: false,
     },
   });
 
