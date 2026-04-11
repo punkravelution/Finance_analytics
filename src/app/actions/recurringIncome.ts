@@ -79,10 +79,16 @@ export async function getRecurringIncomes() {
 }
 
 export async function getRecurringIncomeById(id: string) {
-  return prisma.recurringIncome.findUnique({
+  const row = await prisma.recurringIncome.findUnique({
     where: { id },
-    include: { vault: true },
   });
+  if (!row) return null;
+  return {
+    ...row,
+    billingPeriod: row.billingPeriod as CreateRecurringIncomeInput["billingPeriod"],
+    category: row.category as CreateRecurringIncomeInput["category"],
+    note: row.note ?? undefined,
+  };
 }
 
 export async function createRecurringIncome(data: CreateRecurringIncomeInput) {

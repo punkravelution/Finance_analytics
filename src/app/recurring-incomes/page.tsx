@@ -126,7 +126,11 @@ export default async function RecurringIncomesPage() {
 
                             <p className="text-sm text-slate-300 mt-2">
                               {formatCurrency(income.amount, income.currency)} /{" "}
-                              {PERIOD_LABEL[income.billingPeriod]}
+                              {
+                                PERIOD_LABEL[
+                                  income.billingPeriod as CreateRecurringIncomeInput["billingPeriod"]
+                                ]
+                              }
                             </p>
                             <p className="text-xs text-slate-500 mt-1">
                               Хранилище: {income.vault.name}
