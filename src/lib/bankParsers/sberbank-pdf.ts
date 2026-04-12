@@ -1,5 +1,4 @@
-import { createRequire } from "module";
-import { fileURLToPath } from "url";
+import pdfParse from "pdf-parse";
 
 import type { ParsedTransaction } from "./types";
 
@@ -26,26 +25,9 @@ export interface ParseSberbankPdfResult {
   skippedByStatus: number;
 }
 
-type PdfParseFn = (data: Buffer) => Promise<{ text?: string }>;
-
-let cachedPdfParse: PdfParseFn | null = null;
-
-function getPdfParse(): PdfParseFn {
-  if (cachedPdfParse) return cachedPdfParse;
-  const require = createRequire(fileURLToPath(import.meta.url));
-  // Пакет из serverExternalPackages; относительный .cjs рядом с чанком на проде не кладётся — грузим npm-модуль напрямую.
-  const fn = require("pdf-parse") as unknown;
-  if (typeof fn !== "function") {
-    throw new SberbankPdfParseError("Внутренняя ошибка: модуль pdf-parse загрузился некорректно.");
-  }
-  cachedPdfParse = fn as PdfParseFn;
-  return cachedPdfParse;
-}
-
 async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
-  const run = getPdfParse();
   const dataBuffer = Buffer.from(buffer);
-  const data = await run(dataBuffer);
+  const data = await pdfParse(dataBuffer);
   return typeof data.text === "string" ? data.text : "";
 }
 
