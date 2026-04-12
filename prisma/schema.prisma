@@ -18,6 +18,25 @@ model Category {
   icon        String?
   createdAt   DateTime      @default(now())
   transactions Transaction[]
+  rules        CategoryRule[]
+}
+
+/// Правило автокатегоризации по подстроке в описании (импорт, обучение с ручных правок).
+model CategoryRule {
+  id          String   @id @default(cuid())
+  pattern     String   @unique // подстрока в ВЕРХНЕМ регистре для сопоставления
+  categoryId  String
+  priority    Int      @default(0)
+  isActive    Boolean  @default(true)
+  source      String   @default("manual") // manual | learned
+  matchCount  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId])
+  @@index([isActive])
 }
 
 /// Справочник тегов для быстрого выбора при вводе операций (сами теги на транзакции — JSON).

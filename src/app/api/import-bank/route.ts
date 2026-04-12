@@ -6,6 +6,12 @@ import { parseSberbankPdf, SberbankPdfParseError } from "@/lib/bankParsers/sberb
 import { parseTbankCsv } from "@/lib/bankParsers/tbank";
 import { createImportedCategoryResolver } from "@/lib/bankParsers/categoryMapper";
 import type { ParsedTransaction } from "@/lib/bankParsers/types";
+import {
+  isDescriptionExcludedFromAutoCategory,
+  matchCategoryRule,
+  sortRulesForMatching,
+} from "@/lib/categoryMatcher";
+import { ensureDefaultRulesWhenNoCategories } from "@/lib/defaultCategoryRules";
 import type { Prisma } from "@/generated/prisma/client";
 import {
   matchLiability,
@@ -133,6 +139,8 @@ export type ImportBankResponseBody = {
   errors: string[];
   /** Автопривязка к RecurringIncome / Subscription при импорте */
   autoLinked: number;
+  /** Категория по правилам CategoryRule (после categoryMapper) */
+  autoCategorized: number;
 };
 
 function normalizeNote(note: string): string {
@@ -247,7 +255,10 @@ export async function POST(
   request: NextRequest
 ): Promise<NextResponse<ImportBankResponseBody | ImportBankOverlapBody>> {
   const fail = (status: number, errors: string[]) =>
-    NextResponse.json({ imported: 0, skipped: 0, duplicates: 0, errors, autoLinked: 0 }, { status });
+    NextResponse.json(
+      { imported: 0, skipped: 0, duplicates: 0, errors, autoLinked: 0, autoCategorized: 0 },
+      { status }
+    );
 
   try {
     const formData = await request.formData();
@@ -359,7 +370,15 @@ export async function POST(
       }
     }
 
+    await ensureDefaultRulesWhenNoCategories(prisma);
+
     const resolveCategory = await createImportedCategoryResolver(prisma);
+
+    const activeRules = await prisma.categoryRule.findMany({
+      where: { isActive: true },
+      include: { category: true },
+    });
+    const rulesSorted = sortRulesForMatching(activeRules);
 
     const [recurringIncomes, subscriptions, unpaidPlanned, activeLiabilities] = await Promise.all([
       prisma.recurringIncome.findMany({ where: { isActive: true } }),
@@ -373,6 +392,7 @@ export async function POST(
     let imported = 0;
     let duplicates = 0;
     let autoLinked = 0;
+    let autoCategorized = 0;
     const errors = [...parsed.errors];
 
     /** Импорт может быть длинным (много строк × проверка дубликатов + create); дефолт Prisma 5s не хватает. */
@@ -404,13 +424,29 @@ export async function POST(
             }
           }
 
-          const categoryId = resolveCategory(row.rawCategory);
+          let categoryId = resolveCategory(row.rawCategory);
+          let ruleIdForMatch: string | null = null;
+          if (!categoryId && !isDescriptionExcludedFromAutoCategory(row.description)) {
+            const hit = matchCategoryRule(row.description, rulesSorted);
+            if (hit) {
+              categoryId = hit.categoryId;
+              ruleIdForMatch = hit.id;
+            }
+          }
           const resolvedType = resolveImportType(row, i, classifications);
           const data = buildCreateInput(resolvedType, row, vaultId, categoryId, sessionId);
 
           const created = await tx.transaction.create({ data });
           await applyEffectsForCreated(tx, data);
           imported += 1;
+
+          if (ruleIdForMatch) {
+            await tx.categoryRule.update({
+              where: { id: ruleIdForMatch },
+              data: { matchCount: { increment: 1 } },
+            });
+            autoCategorized += 1;
+          }
 
           if (created.type === "income" && created.toVaultId) {
             const m = matchRecurringIncome(
@@ -536,6 +572,7 @@ export async function POST(
       duplicates,
       errors: errors.slice(0, 50),
       autoLinked,
+      autoCategorized,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Сбой при импорте.";

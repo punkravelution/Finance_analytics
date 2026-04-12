@@ -116,18 +116,31 @@ export function TransactionListRow({
 
   const badgeVariant = typeVariant[tx.type] ?? "info";
 
+  const editHref = `/transactions/${tx.id}/edit`;
+
   return (
     <div>
       <div className="flex items-start gap-2 px-2 py-2 hover:bg-[hsl(216,34%,10%)] transition-colors">
-        <Link
-          href={`/transactions/${tx.id}/edit`}
-          className="flex flex-1 min-w-0 gap-3 px-2 py-1 items-start"
-        >
-          <div className="w-8 h-8 rounded-lg bg-[hsl(216,34%,15%)] flex items-center justify-center text-sm flex-shrink-0">
-            {icon}
-          </div>
+        <div className="flex flex-1 min-w-0 gap-3 px-2 py-1 items-start">
+          <Link
+            href={editHref}
+            className="flex-shrink-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+            aria-label="Редактировать операцию"
+          >
+            <div className="w-8 h-8 rounded-lg bg-[hsl(216,34%,15%)] flex items-center justify-center text-sm">
+              {icon}
+            </div>
+          </Link>
           <div className="flex-1 min-w-0">
-            <p className="text-sm text-slate-200 truncate">{headline}</p>
+            <Link
+              href={editHref}
+              className="block min-w-0 rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+            >
+              <p className="text-sm text-slate-200 truncate hover:text-white transition-colors">
+                {headline}
+              </p>
+            </Link>
+            {/* Вне ссылки: кнопки/select категории и прочие контролы (иначе клик уходит в переход на экран редактирования) */}
             <div className="flex flex-wrap items-center gap-1.5 mt-1">
               <TransactionCategoryQuickPick
                 transactionId={tx.id}
@@ -171,7 +184,11 @@ export function TransactionListRow({
               })}
             </div>
             {vaultLine && (
-              <p className="text-[11px] text-slate-600 mt-0.5 truncate">{vaultLine}</p>
+              <Link href={editHref} className="block min-w-0 mt-0.5 rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60">
+                <p className="text-[11px] text-slate-600 truncate hover:text-slate-400 transition-colors">
+                  {vaultLine}
+                </p>
+              </Link>
             )}
             {(tx.recurringIncome || tx.subscription || tx.plannedExpense || tx.liability) && (
               <div className="flex flex-wrap items-center gap-1.5 mt-1">
@@ -225,7 +242,11 @@ export function TransactionListRow({
               </div>
             )}
           </div>
-          <div className="text-right flex-shrink-0">
+          <Link
+            href={editHref}
+            className="text-right flex-shrink-0 rounded-sm px-1 py-0.5 -mr-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+            aria-label="Редактировать операцию"
+          >
             <p
               className={`text-sm font-semibold tabular-nums ${
                 tx.type === "income"
@@ -241,8 +262,8 @@ export function TransactionListRow({
             <Badge variant={badgeVariant} className="mt-0.5">
               {typeLabels[tx.type as TransactionType]}
             </Badge>
-          </div>
-        </Link>
+          </Link>
+        </div>
         <form action={deleteTransaction.bind(null, tx.id)} className="flex-shrink-0 pt-1">
           <button
             type="submit"

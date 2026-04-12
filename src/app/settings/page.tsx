@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Settings, Database, Info, Globe, Tags } from "lucide-react";
+import { Settings, Database, Info, Globe, Tags, ListFilter } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getBaseCurrency, getActiveCurrencies } from "@/lib/currency";
 import { BaseCurrencyForm } from "@/components/settings/BaseCurrencyForm";
@@ -40,6 +40,27 @@ export default async function SettingsPage() {
               className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600/90 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
             >
               Открыть справочники
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ListFilter size={15} />
+              Правила категоризации
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-slate-400 mb-4">
+              Автоматическое сопоставление описаний из банковских выписок с категориями при импорте и обучение по
+              вашим правкам.
+            </p>
+            <Link
+              href="/settings/rules"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600/90 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              Управление правилами
             </Link>
           </CardContent>
         </Card>

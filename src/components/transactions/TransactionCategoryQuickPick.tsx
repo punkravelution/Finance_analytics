@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { updateTransactionCategory } from "@/app/actions/transaction";
 
 export interface CategoryOptionDto {
@@ -25,6 +26,7 @@ export function TransactionCategoryQuickPick({
   initialCategory,
   categories,
 }: TransactionCategoryQuickPickProps) {
+  const router = useRouter();
   const [categoryId, setCategoryId] = useState<string | null>(initialCategoryId);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -51,6 +53,7 @@ export function TransactionCategoryQuickPick({
     startTransition(async () => {
       try {
         await updateTransactionCategory(transactionId, normalized);
+        router.refresh();
       } catch {
         setCategoryId(prev);
       }
@@ -95,6 +98,12 @@ export function TransactionCategoryQuickPick({
           className="text-[11px] max-w-[220px] rounded-md border border-[hsl(216,34%,25%)] bg-[hsl(222,47%,10%)] text-slate-200 px-2 py-1"
           autoFocus
           onBlur={() => setPickerOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setPickerOpen(false);
+            }
+          }}
         >
           <option value="">Без категории</option>
           {filtered.map((c) => (

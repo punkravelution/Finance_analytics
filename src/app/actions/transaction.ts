@@ -138,11 +138,34 @@ export async function updateTransactionNote(id: string, note: string): Promise<v
 
 export async function updateTransactionCategory(id: string, categoryId: string): Promise<void> {
   const cid = categoryId.trim();
+  const row = await prisma.transaction.findUnique({
+    where: { id },
+    select: { note: true },
+  });
   await prisma.transaction.update({
     where: { id },
     data: { categoryId: cid.length > 0 ? cid : null },
   });
+  if (cid.length > 0 && row?.note && row.note.trim().length > 5) {
+    const pattern = row.note.trim().substring(0, 30).toUpperCase();
+    await prisma.categoryRule.upsert({
+      where: { pattern },
+      update: {
+        categoryId: cid,
+        matchCount: { increment: 1 },
+        source: "learned",
+      },
+      create: {
+        pattern,
+        categoryId: cid,
+        source: "learned",
+        priority: 1,
+        isActive: true,
+      },
+    });
+  }
   revalidatePath("/transactions");
+  revalidatePath("/settings/rules");
 }
 
 export async function createTransaction(

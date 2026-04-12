@@ -29,6 +29,8 @@ interface ImportBankResult {
   errors: string[];
   /** Автопривязка к RecurringIncome / Subscription */
   autoLinked: number;
+  /** Категория по правилам паттернов */
+  autoCategorized: number;
 }
 
 function isOverlapResponse(v: unknown): v is ImportBankOverlapBody {
@@ -46,6 +48,7 @@ function isSuccessImportResult(v: unknown): v is ImportBankResult {
   return (
     typeof o.imported === "number" &&
     typeof o.autoLinked === "number" &&
+    typeof o.autoCategorized === "number" &&
     Array.isArray(o.errors) &&
     !("warning" in o && o.warning === "overlap")
   );
@@ -734,6 +737,8 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
             {", "}
             автопривязано к регулярным доходам/подпискам:{" "}
             <strong className="text-white">{result.autoLinked}</strong>
+            {", "}
+            категория по правилам: <strong className="text-white">{result.autoCategorized}</strong>
           </p>
           {result.errors.length > 0 && (
             <ul className="text-xs text-amber-200 list-disc pl-5 space-y-1">

@@ -29,10 +29,13 @@ function createPrismaClient(): PrismaClient {
   const adapter = new PrismaPg(getPool());
   const client = new PrismaClient({ adapter });
 
-  if (process.env.NODE_ENV !== "production" && client.goal === undefined) {
-    throw new Error(
-      "Prisma client устарел (нет модели Goal). Выполните `npx prisma generate`, затем перезапустите dev-сервер."
-    );
+  if (process.env.NODE_ENV !== "production") {
+    const c = client as unknown as Record<string, unknown>;
+    if (c.goal === undefined || c.tagPreset === undefined) {
+      throw new Error(
+        "Prisma client не соответствует prisma/schema.prisma (нет goal и/или tagPreset). Выполните: npx prisma generate и перезапустите dev-сервер. Если на /transactions ошибка про recurringIncome — примените миграции: npx prisma migrate deploy"
+      );
+    }
   }
 
   return client;
