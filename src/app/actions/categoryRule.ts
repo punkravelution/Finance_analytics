@@ -5,8 +5,6 @@ import { prisma } from "@/lib/prisma";
 import { seedMissingDefaultCategoryRules } from "@/lib/defaultCategoryRules";
 import type { CategoryRuleWithCategory } from "@/lib/categoryMatcher";
 
-export type { CategoryRuleWithCategory };
-
 export async function getCategoryRules(): Promise<CategoryRuleWithCategory[]> {
   return prisma.categoryRule.findMany({
     include: { category: true },
