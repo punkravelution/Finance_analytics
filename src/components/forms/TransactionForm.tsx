@@ -3,6 +3,8 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import type { TransactionActionState } from "@/app/actions/transaction";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { TRANSACTION_TYPE_LABELS, type TransactionType } from "@/types";
 
 interface VaultOption {
@@ -34,6 +36,7 @@ interface TransactionFormProps {
     toVaultId?: string | null;
     categoryId?: string | null;
     note?: string | null;
+    tags?: string[];
     currency?: string;
   };
   cancelHref: string;
@@ -65,6 +68,11 @@ export function TransactionForm({
   const [categoryId, setCategoryId] = useState(defaultValues.categoryId ?? "");
   const [note, setNote] = useState(defaultValues.note ?? "");
   const [currency, setCurrency] = useState(defaultValues.currency ?? "RUB");
+  const [tagList, setTagList] = useState<string[]>(() => {
+    if (defaultValues.tags && defaultValues.tags.length > 0) return [...defaultValues.tags];
+    return [];
+  });
+  const [tagInput, setTagInput] = useState("");
 
   const showFromVault = type === "expense" || type === "transfer";
   const showToVault = type === "income" || type === "transfer";
@@ -73,8 +81,29 @@ export function TransactionForm({
     (c) => !type || c.type === type || c.type === "transfer"
   );
 
+  function addTagsFromString(raw: string) {
+    const parts = raw
+      .split(",")
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+    if (parts.length === 0) return;
+    setTagList((prev) => {
+      const next = [...prev];
+      for (const p of parts) {
+        if (!next.includes(p)) next.push(p);
+      }
+      return next;
+    });
+    setTagInput("");
+  }
+
+  function removeTag(tag: string) {
+    setTagList((prev) => prev.filter((t) => t !== tag));
+  }
+
   return (
     <form action={formAction} className="space-y-5">
+      <input type="hidden" name="tags" value={JSON.stringify(tagList)} readOnly />
       {state.errors?.general && (
         <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400">
           {state.errors.general}
@@ -256,6 +285,50 @@ export function TransactionForm({
         </select>
       </div>
 
+      {/* Теги */}
+      <div>
+        <label className="block text-sm font-medium text-slate-300 mb-1.5">
+          Теги <span className="text-slate-500 font-normal">(через запятую или Enter)</span>
+        </label>
+        <div className="flex flex-wrap gap-1.5 mb-2 min-h-[1.75rem]">
+          {tagList.map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-slate-800 text-slate-300 text-xs border border-slate-600"
+            >
+              {tag}
+              <button
+                type="button"
+                onClick={() => removeTag(tag)}
+                className="rounded-full p-0.5 text-slate-500 hover:text-slate-200 hover:bg-slate-700"
+                aria-label={`Удалить тег ${tag}`}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+        <input
+          value={tagInput}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v.endsWith(",")) {
+              addTagsFromString(v.slice(0, -1));
+            } else {
+              setTagInput(v);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addTagsFromString(tagInput);
+            }
+          }}
+          placeholder="Новый тег…"
+          className={inputClass}
+        />
+      </div>
+
       {/* Валюта и заметка */}
       <div className="grid grid-cols-3 gap-4">
         <div>
@@ -278,13 +351,13 @@ export function TransactionForm({
             Заметка{" "}
             <span className="text-slate-500 font-normal">(необязательно)</span>
           </label>
-          <input
+          <Textarea
             name="note"
-            type="text"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Краткое описание операции"
-            className={inputClass}
+            rows={3}
+            className={cn(inputClass, "min-h-[88px] resize-y")}
           />
         </div>
       </div>

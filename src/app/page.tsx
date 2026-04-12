@@ -5,16 +5,16 @@ import {
   BarChart2,
 } from "lucide-react";
 import { getDashboardStats, getVaultSummaries, getRecentTransactions } from "@/lib/analytics";
-import { formatCurrency, formatPercent } from "@/lib/format";
+import { formatCurrency, formatDateShort, formatPercent } from "@/lib/format";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { VaultsList } from "@/components/dashboard/VaultsList";
 import { RecentTransactions } from "@/components/dashboard/RecentTransactions";
 import { CapitalChart } from "@/components/dashboard/CapitalChart";
+import { CapitalDynamicsWidgetLazy } from "@/components/dashboard/CapitalDynamicsWidgetLazy";
 import { AllocationChart } from "@/components/dashboard/AllocationChart";
 import { Card } from "@/components/ui/card";
-import { prisma } from "@/lib/prisma";
-import { getExchangeRates, getBaseCurrency, convertAmount } from "@/lib/currency";
 import { getTotalMonthlyIncome } from "@/app/actions/recurringIncome";
+import { getCapitalHistory, getCapitalWidgetStats } from "@/app/actions/snapshot";
 import { getGoalsProgress } from "@/app/actions/goal";
 import { getUpcomingExpenses } from "@/app/actions/plannedExpense";
 import {
@@ -24,38 +24,13 @@ import {
 
 export const dynamic = "force-dynamic";
 
-async function getCapitalChartData() {
-  const [baseCurrency, rates] = await Promise.all([
-    getBaseCurrency(),
-    getExchangeRates(),
-  ]);
-
-  const snapshots = await prisma.vaultSnapshot.findMany({
-    where: {
-      vault: { isActive: true, includeInNetWorth: true },
-    },
-    orderBy: { date: "asc" },
-  });
-
-  const grouped = new Map<string, number>();
-  for (const snap of snapshots) {
-    const dateKey = snap.date.toISOString().split("T")[0];
-    const valueInBase = convertAmount(snap.balance, snap.currency, baseCurrency, rates);
-    grouped.set(dateKey, (grouped.get(dateKey) ?? 0) + valueInBase);
-  }
-
-  return Array.from(grouped.entries()).map(([date, value]) => ({
-    date: new Date(date).toLocaleDateString("ru-RU", { day: "numeric", month: "short" }),
-    value,
-  }));
-}
-
 export default async function HomePage() {
   const [
     stats,
     vaults,
     transactions,
-    chartData,
+    capitalHistory12,
+    capitalWidget,
     recurringIncomeTotals,
     goalsProgress,
     upcomingExpenses,
@@ -63,11 +38,17 @@ export default async function HomePage() {
     getDashboardStats(),
     getVaultSummaries(),
     getRecentTransactions(30),
-    getCapitalChartData(),
+    getCapitalHistory(12),
+    getCapitalWidgetStats(),
     getTotalMonthlyIncome(),
     getGoalsProgress(),
     getUpcomingExpenses(),
   ]);
+
+  const chartData = capitalHistory12.map((d) => ({
+    date: formatDateShort(`${d.date}T12:00:00`),
+    value: d.total,
+  }));
 
   const topGoals = goalsProgress.filter((g) => !g.isCompleted).slice(0, 3);
   const topPlanned = upcomingExpenses.slice(0, 3);
@@ -192,6 +173,12 @@ export default async function HomePage() {
           accent="purple"
         />
       </div>
+
+      <CapitalDynamicsWidgetLazy
+        points={capitalWidget.last30}
+        monthDelta={capitalWidget.monthDelta}
+        currency={capitalWidget.currency}
+      />
 
       {/* Основная сетка */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 mb-5">

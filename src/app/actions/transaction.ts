@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { stringifyTagsForDb } from "@/lib/transactionTags";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -15,6 +16,21 @@ export interface TransactionActionState {
   };
 }
 
+function parseTagsField(raw: string | undefined): string | null {
+  if (raw == null || !raw.trim()) return null;
+  try {
+    const v = JSON.parse(raw) as unknown;
+    if (!Array.isArray(v)) return null;
+    const arr = v
+      .filter((x): x is string => typeof x === "string")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    return stringifyTagsForDb(arr);
+  } catch {
+    return null;
+  }
+}
+
 function parseTransactionFormData(formData: FormData) {
   const amountStr = formData.get("amount")?.toString() ?? "";
   const dateStr = formData.get("date")?.toString() ?? "";
@@ -27,6 +43,7 @@ function parseTransactionFormData(formData: FormData) {
     toVaultId: formData.get("toVaultId")?.toString() || null,
     categoryId: formData.get("categoryId")?.toString() || null,
     note: formData.get("note")?.toString().trim() || null,
+    tags: parseTagsField(formData.get("tags")?.toString()),
     currency: formData.get("currency")?.toString().trim() || "RUB",
   };
 }
@@ -99,6 +116,24 @@ async function checkNotAssetsVault(
   return null;
 }
 
+export async function updateTransactionNote(id: string, note: string): Promise<void> {
+  const trimmed = note.trim();
+  await prisma.transaction.update({
+    where: { id },
+    data: { note: trimmed.length > 0 ? trimmed : null },
+  });
+  revalidatePath("/transactions");
+}
+
+export async function updateTransactionCategory(id: string, categoryId: string): Promise<void> {
+  const cid = categoryId.trim();
+  await prisma.transaction.update({
+    where: { id },
+    data: { categoryId: cid.length > 0 ? cid : null },
+  });
+  revalidatePath("/transactions");
+}
+
 export async function createTransaction(
   _prev: TransactionActionState,
   formData: FormData
@@ -126,6 +161,7 @@ export async function createTransaction(
           toVaultId: data.toVaultId,
           categoryId: data.categoryId,
           note: data.note,
+          tags: data.tags,
           currency: data.currency,
         },
       });
@@ -193,6 +229,7 @@ export async function updateTransaction(
           toVaultId: data.toVaultId,
           categoryId: data.categoryId,
           note: data.note,
+          tags: data.tags,
           currency: data.currency,
         },
       });

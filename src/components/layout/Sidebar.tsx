@@ -15,6 +15,8 @@ import {
   Settings,
   Target,
   CalendarClock,
+  LineChart,
+  Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +36,8 @@ const baseNavItems = [
   },
   { href: "/liabilities", label: "Долги", icon: HandCoins },
   { href: "/analytics", label: "Аналитика", icon: BarChart2 },
+  { href: "/capital-history", label: "История капитала", icon: LineChart },
+  { href: "/import", label: "Импорт выписки", icon: Upload },
   { href: "/currencies", label: "Валюты", icon: Coins },
 ] as const;
 

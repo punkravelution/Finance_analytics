@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { AiAssistant } from "@/components/AiAssistant";
+import { tryTakeSnapshot } from "@/app/actions/snapshot";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,11 +20,13 @@ export const metadata: Metadata = {
   description: "Личный финансовый аналитик — учёт капитала, активов и операций",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  await tryTakeSnapshot();
+
   return (
     <html lang="ru" className="dark">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>

@@ -108,13 +108,47 @@ function toGroqMessages(
   return out;
 }
 
+function resolveGroqApiKey(): string | undefined {
+  for (const name of ["GROQ_API_KEY", "groq_API_KEY"] as const) {
+    const raw = process.env[name];
+    const t = typeof raw === "string" ? raw.trim() : "";
+    if (t.length > 0) return t;
+  }
+  for (const [key, val] of Object.entries(process.env)) {
+    const k = key.replace(/^\uFEFF/, "");
+    if ((k === "GROQ_API_KEY" || k === "groq_API_KEY") && typeof val === "string") {
+      const t = val.trim();
+      if (t.length > 0) return t;
+    }
+  }
+  return undefined;
+}
+
+function groqKeyConfiguredButEmpty(): boolean {
+  for (const name of ["GROQ_API_KEY", "groq_API_KEY"] as const) {
+    if (!Object.prototype.hasOwnProperty.call(process.env, name)) continue;
+    const raw = process.env[name];
+    if (typeof raw !== "string") continue;
+    if (raw.trim().length === 0) return true;
+  }
+  for (const [key, val] of Object.entries(process.env)) {
+    const k = key.replace(/^\uFEFF/, "");
+    if ((k === "GROQ_API_KEY" || k === "groq_API_KEY") && typeof val === "string" && val.trim().length === 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function POST(request: NextRequest) {
-  const apiKey = process.env.GROQ_API_KEY?.trim();
+  const apiKey = resolveGroqApiKey();
   if (!apiKey) {
+    const empty = groqKeyConfiguredButEmpty();
     return NextResponse.json(
       {
-        error:
-          "Переменная окружения GROQ_API_KEY не задана. Создайте ключ на console.groq.com и добавьте его в .env.local.",
+        error: empty
+          ? "В .env.local переменная GROQ_API_KEY есть, но значение пустое. Вставьте ключ сразу после знака = на той же строке (без переноса на новую строку), сохраните файл (Ctrl+S) и перезапустите dev-сервер."
+          : "Переменная GROQ_API_KEY не задана. Создайте ключ на https://console.groq.com/ и добавьте в корень проекта файл .env.local со строкой GROQ_API_KEY=gsk_… затем перезапустите dev-сервер.",
       },
       { status: 500 }
     );

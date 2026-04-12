@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { formatCurrency, formatDate } from "@/lib/format";
-import { TRANSACTION_TYPE_LABELS } from "@/types";
+import { formatCurrency } from "@/lib/format";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { ArrowLeftRight, Plus } from "lucide-react";
-import { deleteTransaction } from "@/app/actions/transaction";
+import { TransactionListRow, type TransactionListRowDto } from "@/components/transactions/TransactionListRow";
+import type { CategoryOptionDto } from "@/components/transactions/TransactionCategoryQuickPick";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +17,13 @@ async function getTransactions() {
     },
     orderBy: { date: "desc" },
     take: 100,
+  });
+}
+
+async function getCategories(): Promise<CategoryOptionDto[]> {
+  return prisma.category.findMany({
+    select: { id: true, name: true, type: true, color: true },
+    orderBy: { name: "asc" },
   });
 }
 
@@ -43,16 +49,34 @@ async function getStats() {
   };
 }
 
-const typeVariant: Record<string, "success" | "danger" | "info"> = {
-  income: "success",
-  expense: "danger",
-  transfer: "info",
-};
-
-const typeLabels = TRANSACTION_TYPE_LABELS;
+function toRowDto(tx: Awaited<ReturnType<typeof getTransactions>>[number]): TransactionListRowDto {
+  return {
+    id: tx.id,
+    type: tx.type,
+    amount: tx.amount,
+    currency: tx.currency,
+    note: tx.note,
+    tags: tx.tags,
+    categoryId: tx.categoryId,
+    category: tx.category
+      ? {
+          id: tx.category.id,
+          name: tx.category.name,
+          color: tx.category.color,
+          icon: tx.category.icon,
+        }
+      : null,
+    fromVault: tx.fromVault ? { id: tx.fromVault.id, name: tx.fromVault.name } : null,
+    toVault: tx.toVault ? { id: tx.toVault.id, name: tx.toVault.name } : null,
+  };
+}
 
 export default async function TransactionsPage() {
-  const [transactions, stats] = await Promise.all([getTransactions(), getStats()]);
+  const [transactions, stats, categories] = await Promise.all([
+    getTransactions(),
+    getStats(),
+    getCategories(),
+  ]);
 
   const savings = stats.monthlyIncome - stats.monthlyExpenses;
   const savingsRate =
@@ -60,7 +84,6 @@ export default async function TransactionsPage() {
       ? ((savings / stats.monthlyIncome) * 100).toFixed(0)
       : "0";
 
-  // Группировка по дате
   const grouped = transactions.reduce<
     Record<string, typeof transactions>
   >((acc, tx) => {
@@ -75,7 +98,6 @@ export default async function TransactionsPage() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      {/* Header */}
       <div className="flex items-center justify-between mb-7">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
@@ -95,7 +117,6 @@ export default async function TransactionsPage() {
         </Link>
       </div>
 
-      {/* Итоги месяца */}
       <div className="grid grid-cols-3 gap-4 mb-7">
         <div className="bg-[hsl(222,47%,8%)] border border-[hsl(216,34%,17%)] rounded-xl p-4">
           <p className="text-xs text-slate-500 mb-1">Доходы · {monthName}</p>
@@ -125,7 +146,6 @@ export default async function TransactionsPage() {
         </div>
       </div>
 
-      {/* Список транзакций */}
       <div className="space-y-5">
         {Object.entries(grouped).map(([dateStr, txs]) => {
           const dayIncome = txs
@@ -137,7 +157,6 @@ export default async function TransactionsPage() {
 
           return (
             <div key={dateStr}>
-              {/* Заголовок дня */}
               <div className="flex items-center justify-between mb-2 px-1">
                 <p className="text-xs font-medium text-slate-500">
                   {new Date(dateStr).toLocaleDateString("ru-RU", {
@@ -163,93 +182,13 @@ export default async function TransactionsPage() {
               <Card>
                 <CardContent className="p-0">
                   <div className="divide-y divide-[hsl(216,34%,13%)]">
-                    {txs.map((tx) => {
-                      const deleteAction = deleteTransaction.bind(null, tx.id);
-                      return (
-                      <div
+                    {txs.map((tx) => (
+                      <TransactionListRow
                         key={tx.id}
-                        className="flex items-center gap-2 px-2 py-2 hover:bg-[hsl(216,34%,10%)] transition-colors"
-                      >
-                      <Link
-                        href={`/transactions/${tx.id}/edit`}
-                        className="flex items-center gap-3 px-2 py-1 flex-1 min-w-0"
-                      >
-                        {/* Иконка */}
-                        <div className="w-8 h-8 rounded-lg bg-[hsl(216,34%,15%)] flex items-center justify-center text-sm flex-shrink-0">
-                          {tx.category?.icon ??
-                            (tx.type === "income"
-                              ? "💰"
-                              : tx.type === "expense"
-                              ? "💸"
-                              : "🔄")}
-                        </div>
-
-                        {/* Описание */}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-slate-200 truncate">
-                            {tx.note ?? tx.category?.name ?? typeLabels[tx.type as keyof typeof typeLabels]}
-                          </p>
-                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                            {tx.category && (
-                              <span
-                                className="text-[11px] px-1.5 py-0.5 rounded"
-                                style={{
-                                  backgroundColor: tx.category.color
-                                    ? `${tx.category.color}20`
-                                    : "#1e293b",
-                                  color: tx.category.color ?? "#94a3b8",
-                                }}
-                              >
-                                {tx.category.name}
-                              </span>
-                            )}
-                            {tx.fromVault && (
-                              <span className="text-[11px] text-slate-600">
-                                {tx.fromVault.name}
-                                {tx.toVault ? ` → ${tx.toVault.name}` : ""}
-                              </span>
-                            )}
-                            {!tx.fromVault && tx.toVault && (
-                              <span className="text-[11px] text-slate-600">
-                                → {tx.toVault.name}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Сумма */}
-                        <div className="text-right flex-shrink-0">
-                          <p
-                            className={`text-sm font-semibold tabular-nums ${
-                              tx.type === "income"
-                                ? "text-green-400"
-                                : tx.type === "expense"
-                                ? "text-red-400"
-                                : "text-slate-300"
-                            }`}
-                          >
-                            {tx.type === "income"
-                              ? "+"
-                              : tx.type === "expense"
-                              ? "−"
-                              : ""}
-                            {formatCurrency(tx.amount, tx.currency)}
-                          </p>
-                          <Badge variant={typeVariant[tx.type]} className="mt-0.5">
-                            {typeLabels[tx.type as keyof typeof typeLabels]}
-                          </Badge>
-                        </div>
-                      </Link>
-                      <form action={deleteAction}>
-                        <button
-                          type="submit"
-                          className="px-2.5 py-1.5 text-[11px] rounded-md border border-red-500/30 text-red-400 hover:text-red-300 hover:border-red-500/50 transition-colors"
-                        >
-                          Удалить
-                        </button>
-                      </form>
-                      </div>
-                    )})}
+                        tx={toRowDto(tx)}
+                        categories={categories}
+                      />
+                    ))}
                   </div>
                 </CardContent>
               </Card>

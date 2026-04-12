@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TransactionForm } from "@/components/forms/TransactionForm";
 import { prisma } from "@/lib/prisma";
 import { updateTransaction, deleteTransaction } from "@/app/actions/transaction";
+import { parseTagsJson } from "@/lib/transactionTags";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,7 @@ export default async function EditTransactionPage({ params }: Props) {
         </CardHeader>
         <CardContent>
           <TransactionForm
+            key={transaction.id}
             action={action}
             vaults={vaults}
             categories={categories}
@@ -62,6 +64,7 @@ export default async function EditTransactionPage({ params }: Props) {
               toVaultId: transaction.toVaultId,
               categoryId: transaction.categoryId,
               note: transaction.note,
+              tags: parseTagsJson(transaction.tags),
               currency: transaction.currency,
             }}
           />
