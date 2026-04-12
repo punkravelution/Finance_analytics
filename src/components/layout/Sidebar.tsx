@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard,
+  Sparkles,
   Vault,
   TrendingUp,
   ArrowLeftRight,
@@ -22,6 +23,7 @@ import { cn } from "@/lib/utils";
 
 const baseNavItems = [
   { href: "/", label: "Главная", icon: LayoutDashboard },
+  { href: "/assistant", label: "ИИ-аналитик", icon: Sparkles },
   { href: "/vaults", label: "Хранилища", icon: Vault },
   { href: "/assets", label: "Активы", icon: TrendingUp },
   { href: "/transactions", label: "Операции", icon: ArrowLeftRight },

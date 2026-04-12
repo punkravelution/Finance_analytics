@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Groq from "groq-sdk";
 import type { ChatCompletionChunk } from "groq-sdk/resources/chat/completions";
 import { buildFinancialContextForAi } from "@/lib/aiAssistantContext";
+import { parseStructuredAssistantPayload } from "@/lib/assistantStructuredPayload";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,8 +39,7 @@ function applyContextLengthLimit(rawContext: string): string {
 const BOOTSTRAP_USER_MESSAGE =
   "Поприветствуй пользователя и в 2–4 предложениях кратко резюмируй его финансовое положение по данным из контекста. Не перечисляй весь контекст списком — говори по-человечески.";
 
-function buildSystemPrompt(contextBlock: string): string {
-  return `Ты персональный финансовый советник и аналитик. Твоя задача — помогать пользователю принимать умные финансовые решения на основе его реальных данных.
+const ADVISOR_CORE = `Ты персональный финансовый советник и аналитик. Твоя задача — помогать пользователю принимать умные финансовые решения на основе его реальных данных.
 
 ПРАВИЛА РАБОТЫ:
 - Отвечай ТОЛЬКО на русском языке
@@ -55,12 +55,53 @@ function buildSystemPrompt(contextBlock: string): string {
 3. УПРАВЛЕНИЕ ДОЛГАМИ — стратегия погашения (лавина или снежный ком), расчёт экономии на процентах
 4. ИНВЕСТИЦИОННЫЕ СОВЕТЫ — анализировать текущий портфель, предлагать диверсификацию (без конкретных рекомендаций по ценным бумагам)
 5. ПЛАНИРОВАНИЕ БЮДЖЕТА — рассчитывать оптимальное распределение свободного денежного потока
-6. ПРЕДУПРЕЖДЕНИЯ — сообщать о просроченных платежах, целях под угрозой, нехватке средств
+6. ПРЕДУПРЕЖДЕНИЯ — сообщать о просроченных платежах, целях под угрозой, нехватке средств`;
 
-ФОРМАТ ОТВЕТОВ:
+const STREAMING_FORMAT = `ФОРМАТ ОТВЕТОВ (стриминг, обычный режим):
 - Для расчётов используй конкретные числа из контекста
-- Структурируй длинные ответы с заголовками
-- В конце сложных ответов давай краткое резюме "Что делать прямо сейчас"
+- Структурируй ответы с помощью markdown:
+  - ## для основных разделов
+  - **жирный** для ключевых цифр и выводов
+  - Маркированные списки для перечислений
+  - В конце всегда блок "## Что делать прямо сейчас" с 2-3 конкретными шагами`;
+
+const STRUCTURED_JSON_RULES = `СЕЙЧАС ВКЛЮЧЁН STRUCTURED-РЕЖИМ: отвечай ТОЛЬКО одним валидным JSON-объектом (без markdown, без пояснений до или после JSON).
+
+Отвечай ТОЛЬКО валидным JSON в формате:
+{
+  "summary": "краткий вывод 1-2 предложения",
+  "sections": [
+    {
+      "title": "заголовок раздела",
+      "text": "текст объяснения",
+      "chart": {
+        "type": "bar" | "pie" | "line" | null,
+        "title": "название графика",
+        "data": [{ "name": "метка", "value": число }]
+      } | null
+    }
+  ],
+  "actions": ["конкретное действие 1", "конкретное действие 2"]
+}
+
+Используй chart только когда есть реальные числовые данные из контекста пользователя.
+Для bar/pie — данные по категориям или хранилищам. Для line — данные по времени.
+Если график неуместен, у раздела поставь "chart": null.
+Ключи и строки — в двойных кавычках по правилам JSON.`;
+
+function buildStreamingSystemPrompt(contextBlock: string): string {
+  return `${ADVISOR_CORE}
+
+${STREAMING_FORMAT}
+
+ТЕКУЩЕЕ ФИНАНСОВОЕ СОСТОЯНИЕ ПОЛЬЗОВАТЕЛЯ:
+${contextBlock}`;
+}
+
+function buildStructuredSystemPrompt(contextBlock: string): string {
+  return `${ADVISOR_CORE}
+
+${STRUCTURED_JSON_RULES}
 
 ТЕКУЩЕЕ ФИНАНСОВОЕ СОСТОЯНИЕ ПОЛЬЗОВАТЕЛЯ:
 ${contextBlock}`;
@@ -140,6 +181,23 @@ function groqKeyConfiguredButEmpty(): boolean {
   return false;
 }
 
+function tryParseJsonContent(content: string): unknown | null {
+  const trimmed = content.trim();
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence?.[1]) {
+      try {
+        return JSON.parse(fence[1].trim()) as unknown;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   const apiKey = resolveGroqApiKey();
   if (!apiKey) {
@@ -167,6 +225,7 @@ export async function POST(request: NextRequest) {
 
   const messagesRaw = body.messages;
   const includeContext = body.includeContext === true;
+  const structured = body.structured === true;
 
   const parsed = parseMessages(messagesRaw);
   if (parsed === null) {
@@ -191,7 +250,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const systemContent = buildSystemPrompt(contextBlock);
+  const systemContent = structured
+    ? buildStructuredSystemPrompt(contextBlock)
+    : buildStreamingSystemPrompt(contextBlock);
+
   let userAssistant = toGroqMessages(parsed);
 
   if (includeContext && userAssistant.length === 0) {
@@ -207,6 +269,55 @@ export async function POST(request: NextRequest) {
 
   const groq = new Groq({ apiKey });
 
+  if (structured) {
+    let content: string | undefined;
+    try {
+      const completion = await groq.chat.completions.create({
+        model: MODEL,
+        messages: [{ role: "system", content: systemContent }, ...userAssistant],
+        stream: false,
+        max_tokens: 4096,
+        response_format: { type: "json_object" },
+      });
+      const msg = completion.choices[0]?.message?.content;
+      content = typeof msg === "string" ? msg : undefined;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Ошибка при обращении к Groq API.";
+      return NextResponse.json({ error: message }, { status: 502 });
+    }
+
+    if (!content || content.trim().length === 0) {
+      return NextResponse.json({ error: "Пустой ответ модели." }, { status: 502 });
+    }
+
+    const jsonUnknown = tryParseJsonContent(content);
+    if (jsonUnknown === null) {
+      return NextResponse.json(
+        { error: "Модель вернула непарсабельный JSON." },
+        { status: 502 }
+      );
+    }
+
+    const structuredPayload = parseStructuredAssistantPayload(jsonUnknown);
+    if (!structuredPayload) {
+      return NextResponse.json(
+        { error: "Модель вернула JSON неожиданной структуры." },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json(
+      { structured: structuredPayload },
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
+          "X-Context-Length": String(contextBlock.length),
+        },
+      }
+    );
+  }
+
   let stream: AsyncIterable<ChatCompletionChunk>;
   try {
     stream = await groq.chat.completions.create({
@@ -216,8 +327,7 @@ export async function POST(request: NextRequest) {
       max_tokens: 2048,
     });
   } catch (e) {
-    const message =
-      e instanceof Error ? e.message : "Ошибка при обращении к Groq API.";
+    const message = e instanceof Error ? e.message : "Ошибка при обращении к Groq API.";
     return NextResponse.json({ error: message }, { status: 502 });
   }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { SendHorizontal, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -226,16 +227,25 @@ export function AiAssistant() {
           role="dialog"
           aria-label="Финансовый ИИ"
         >
-          <div className="flex shrink-0 items-center justify-between border-b border-[hsl(216,34%,17%)] px-3 py-2.5">
-            <span className="text-sm font-semibold text-slate-100">Финансовый ИИ</span>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-              aria-label="Закрыть чат"
-            >
-              <X className="h-4 w-4" />
-            </button>
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[hsl(216,34%,17%)] px-3 py-2.5">
+            <span className="text-sm font-semibold text-slate-100 truncate">Финансовый ИИ</span>
+            <div className="flex shrink-0 items-center gap-1">
+              <Link
+                href="/assistant"
+                onClick={() => setOpen(false)}
+                className="rounded-md px-2 py-1 text-[11px] font-medium text-indigo-300 hover:bg-slate-800 hover:text-indigo-200 whitespace-nowrap"
+              >
+                Открыть полный анализ →
+              </Link>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                aria-label="Закрыть чат"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
