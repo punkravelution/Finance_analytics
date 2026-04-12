@@ -6,9 +6,106 @@ import { parseSberbankPdf, SberbankPdfParseError } from "@/lib/bankParsers/sberb
 import { parseTbankCsv } from "@/lib/bankParsers/tbank";
 import { createImportedCategoryResolver } from "@/lib/bankParsers/categoryMapper";
 import type { ParsedTransaction } from "@/lib/bankParsers/types";
+import type { Prisma } from "@/generated/prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+export type SessionBankSource = "sberbank" | "tbank";
+
+export type ImportBankOverlapBody = {
+  warning: "overlap";
+  message: string;
+  overlappingSession: {
+    id: string;
+    fileName: string;
+    dateFrom: string;
+    dateTo: string;
+    totalCount: number;
+    createdAt: string;
+  };
+};
+
+function normalizedBankSource(bankRaw: string): SessionBankSource {
+  return bankRaw === "tbank" ? "tbank" : "sberbank";
+}
+
+function dateRangeFromTransactions(transactions: ParsedTransaction[]): { dateFrom: Date; dateTo: Date } {
+  const times = transactions.map((t) => t.date.getTime());
+  const min = Math.min(...times);
+  const max = Math.max(...times);
+  return { dateFrom: new Date(min), dateTo: new Date(max) };
+}
+
+async function findOverlappingImportSession(
+  vaultId: string,
+  bankSource: SessionBankSource,
+  dateFrom: Date,
+  dateTo: Date
+) {
+  return prisma.importSession.findFirst({
+    where: {
+      vaultId,
+      bankSource,
+      dateFrom: { lte: dateTo },
+      dateTo: { gte: dateFrom },
+    },
+    select: {
+      id: true,
+      fileName: true,
+      dateFrom: true,
+      dateTo: true,
+      totalCount: true,
+      createdAt: true,
+    },
+  });
+}
+
+function formatRuRangeShort(from: Date, to: Date): string {
+  const fmt = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit" });
+  return `${fmt.format(from)}–${fmt.format(to)}`;
+}
+
+type ImportResolvedType = "income" | "expense" | "transfer";
+
+/** Индекс строки в массиве распарсенных операций → выбранный тип после классификации */
+type ClassificationPayload = Partial<Record<number, ImportResolvedType>>;
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function parseClassificationsField(raw: string | null | undefined): ClassificationPayload {
+  if (raw == null || raw.trim() === "") return {};
+  try {
+    const obj: unknown = JSON.parse(raw);
+    if (!isPlainObject(obj)) return {};
+    const out: ClassificationPayload = {};
+    for (const [k, v] of Object.entries(obj)) {
+      const idx = Number(k);
+      if (!Number.isInteger(idx) || idx < 0) continue;
+      if (v === "income" || v === "expense" || v === "transfer") {
+        out[idx] = v;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function resolveImportType(
+  row: ParsedTransaction,
+  index: number,
+  classifications: ClassificationPayload
+): ImportResolvedType {
+  if (row.needsClassification) {
+    const c = classifications[index];
+    if (c === "income" || c === "expense" || c === "transfer") return c;
+    return row.type;
+  }
+  return row.type;
+}
 
 type ParsedBatch = {
   transactions: ParsedTransaction[];
@@ -27,10 +124,7 @@ function normalizeNote(note: string): string {
   return note.trim().replace(/\s+/g, " ");
 }
 
-interface TxClient {
-  transaction: typeof prisma.transaction;
-  vault: typeof prisma.vault;
-}
+type TxClient = Prisma.TransactionClient;
 
 async function existsDuplicateForImport(
   tx: TxClient,
@@ -71,12 +165,18 @@ async function applyManualVaultDelta(tx: TxClient, vaultId: string | null, delta
   }
 }
 
-function buildCreateInput(parsed: ParsedTransaction, vaultId: string, categoryId: string | null) {
+function buildCreateInput(
+  resolvedType: ImportResolvedType,
+  parsed: ParsedTransaction,
+  vaultId: string,
+  categoryId: string | null,
+  importSessionId: string
+) {
   const amountAbs = Math.abs(parsed.amount);
   const currency = (parsed.currency ?? "RUB").trim().toUpperCase() || "RUB";
   const note = parsed.description;
 
-  if (parsed.type === "income") {
+  if (resolvedType === "income") {
     return {
       type: "income" as const,
       amount: amountAbs,
@@ -86,9 +186,10 @@ function buildCreateInput(parsed: ParsedTransaction, vaultId: string, categoryId
       toVaultId: vaultId,
       categoryId,
       note,
+      importSessionId,
     };
   }
-  if (parsed.type === "expense") {
+  if (resolvedType === "expense") {
     return {
       type: "expense" as const,
       amount: amountAbs,
@@ -98,6 +199,7 @@ function buildCreateInput(parsed: ParsedTransaction, vaultId: string, categoryId
       toVaultId: null as string | null,
       categoryId,
       note,
+      importSessionId,
     };
   }
   return {
@@ -109,6 +211,7 @@ function buildCreateInput(parsed: ParsedTransaction, vaultId: string, categoryId
     toVaultId: vaultId,
     categoryId,
     note,
+    importSessionId,
   };
 }
 
@@ -125,7 +228,9 @@ async function applyEffectsForCreated(tx: TxClient, input: CreateInput): Promise
   }
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse<ImportBankResponseBody>> {
+export async function POST(
+  request: NextRequest
+): Promise<NextResponse<ImportBankResponseBody | ImportBankOverlapBody>> {
   const fail = (status: number, errors: string[]) =>
     NextResponse.json({ imported: 0, skipped: 0, duplicates: 0, errors }, { status });
 
@@ -136,6 +241,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportBan
     const vaultId = formData.get("vaultId")?.toString().trim();
     const skipRaw = formData.get("skipDuplicates")?.toString();
     const skipDuplicates = skipRaw !== "false" && skipRaw !== "0";
+    const forceImport = formData.get("forceImport")?.toString() === "true";
+    const classifications = parseClassificationsField(formData.get("classifications")?.toString());
 
     if (!vaultId) {
       return fail(400, ["Укажите хранилище."]);
@@ -202,6 +309,41 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportBan
       return fail(400, hint);
     }
 
+    for (let i = 0; i < parsed.transactions.length; i++) {
+      const row = parsed.transactions[i];
+      if (!row.needsClassification) continue;
+      const c = classifications[i];
+      if (c !== "income" && c !== "expense" && c !== "transfer") {
+        return fail(400, [
+          "Для операций с типом «перевод» нужна классификация: передайте поле classifications (JSON) с типом для каждой такой строки по индексу.",
+        ]);
+      }
+    }
+
+    const sessionBank = normalizedBankSource(bankRaw ?? "");
+    const { dateFrom, dateTo } = dateRangeFromTransactions(parsed.transactions);
+
+    if (!forceImport) {
+      const overlap = await findOverlappingImportSession(vaultId, sessionBank, dateFrom, dateTo);
+      if (overlap) {
+        const bankName = sessionBank === "tbank" ? "Т-Банка" : "Сбербанка";
+        const period = formatRuRangeShort(overlap.dateFrom, overlap.dateTo);
+        const body: ImportBankOverlapBody = {
+          warning: "overlap",
+          message: `Найден предыдущий импорт за период ${period} из ${bankName}. Транзакции за пересекающийся период будут пропущены как дубли.`,
+          overlappingSession: {
+            id: overlap.id,
+            fileName: overlap.fileName,
+            dateFrom: overlap.dateFrom.toISOString(),
+            dateTo: overlap.dateTo.toISOString(),
+            totalCount: overlap.totalCount,
+            createdAt: overlap.createdAt.toISOString(),
+          },
+        };
+        return NextResponse.json(body, { status: 200 });
+      }
+    }
+
     const resolveCategory = await createImportedCategoryResolver(prisma);
 
     let imported = 0;
@@ -213,11 +355,24 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportBan
 
     await prisma.$transaction(
       async (tx) => {
-        const client = tx as TxClient;
-        for (const row of parsed.transactions) {
+        const importSession = await tx.importSession.create({
+          data: {
+            bankSource: sessionBank,
+            fileName: fileEntry.name,
+            dateFrom,
+            dateTo,
+            vaultId,
+            totalCount: 0,
+            skippedCount: 0,
+          },
+        });
+        const sessionId = importSession.id;
+
+        for (let i = 0; i < parsed.transactions.length; i++) {
+          const row = parsed.transactions[i];
           const amountAbs = Math.abs(row.amount);
           if (skipDuplicates) {
-            const dup = await existsDuplicateForImport(client, vaultId, row.date, amountAbs, row.description);
+            const dup = await existsDuplicateForImport(tx, vaultId, row.date, amountAbs, row.description);
             if (dup) {
               duplicates += 1;
               continue;
@@ -225,12 +380,21 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportBan
           }
 
           const categoryId = resolveCategory(row.rawCategory);
-          const data = buildCreateInput(row, vaultId, categoryId);
+          const resolvedType = resolveImportType(row, i, classifications);
+          const data = buildCreateInput(resolvedType, row, vaultId, categoryId, sessionId);
 
-          await client.transaction.create({ data });
-          await applyEffectsForCreated(client, data);
+          await tx.transaction.create({ data });
+          await applyEffectsForCreated(tx, data);
           imported += 1;
         }
+
+        await tx.importSession.update({
+          where: { id: sessionId },
+          data: {
+            totalCount: imported,
+            skippedCount: duplicates,
+          },
+        });
       },
       { timeout: IMPORT_TX_TIMEOUT_MS, maxWait: 15_000 }
     );
@@ -238,6 +402,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportBan
     revalidatePath("/transactions");
     revalidatePath("/vaults");
     revalidatePath("/");
+    revalidatePath("/import");
 
     return NextResponse.json({
       imported,

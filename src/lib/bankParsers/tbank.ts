@@ -89,6 +89,7 @@ export function parseTbankCsv(buffer: ArrayBuffer): ParseTbankResult {
     const category = cols[9]?.trim() ?? "";
     const description = cols[11]?.trim() ?? "";
 
+    const type = inferType(description, category, amount);
     transactions.push({
       date,
       amount,
@@ -96,7 +97,8 @@ export function parseTbankCsv(buffer: ArrayBuffer): ParseTbankResult {
       description,
       category,
       rawCategory: category,
-      type: inferType(description, category, amount),
+      type,
+      needsClassification: type === "transfer",
       bankSource: "tbank",
     });
   }

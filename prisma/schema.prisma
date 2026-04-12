@@ -54,6 +54,27 @@ model Vault {
   recurringIncomes RecurringIncome[]
   goals            Goal[]
   plannedExpenses  PlannedExpense[]
+  importSessions   ImportSession[]
+}
+
+// ─── Сессия импорта банковской выписки ───────────────────────────────────────
+
+model ImportSession {
+  id           String   @id @default(cuid())
+  bankSource   String // sberbank | tbank
+  fileName     String
+  dateFrom     DateTime
+  dateTo       DateTime
+  totalCount   Int // импортировано транзакций
+  skippedCount Int      @default(0) // пропущено как дубли
+  vaultId      String
+  createdAt    DateTime @default(now())
+
+  transactions Transaction[]
+  vault        Vault    @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+
+  @@index([vaultId, bankSource])
+  @@index([dateFrom, dateTo])
 }
 
 // ─── Актив внутри хранилища ───────────────────────────────────────────────────
@@ -103,23 +124,27 @@ model AssetValuation {
 // ─── Операция (доход / расход / перевод) ─────────────────────────────────────
 
 model Transaction {
-  id           String    @id @default(cuid())
-  date         DateTime
-  type         String    // income | expense | transfer
-  amount       Float
-  currency     String    @default("RUB")
-  fromVaultId  String?
-  toVaultId    String?
-  categoryId   String?
-  note         String?
-  tags         String?   // JSON-массив строк
-  isRecurring  Boolean   @default(false)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id               String         @id @default(cuid())
+  date             DateTime
+  type             String // income | expense | transfer
+  amount           Float
+  currency         String         @default("RUB")
+  fromVaultId      String?
+  toVaultId        String?
+  categoryId       String?
+  note             String?
+  tags             String? // JSON-массив строк
+  isRecurring      Boolean        @default(false)
+  importSessionId  String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
-  fromVault    Vault?    @relation("TransactionFrom", fields: [fromVaultId], references: [id])
-  toVault      Vault?    @relation("TransactionTo", fields: [toVaultId], references: [id])
-  category     Category? @relation(fields: [categoryId], references: [id])
+  fromVault     Vault?         @relation("TransactionFrom", fields: [fromVaultId], references: [id])
+  toVault       Vault?         @relation("TransactionTo", fields: [toVaultId], references: [id])
+  category      Category?      @relation(fields: [categoryId], references: [id])
+  importSession ImportSession? @relation(fields: [importSessionId], references: [id], onDelete: Cascade)
+
+  @@index([importSessionId])
 }
 
 // ─── Доходное событие (дивиденды, купоны, стейкинг…) ─────────────────────────

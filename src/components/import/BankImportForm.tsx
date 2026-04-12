@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Upload } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,6 +10,16 @@ import { cn } from "@/lib/utils";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { parseTbankCsv } from "@/lib/bankParsers/tbank";
 import type { ParsedTransaction } from "@/lib/bankParsers/types";
+import {
+  loadTransferRules,
+  matchRuleForDescription,
+  mergeTransferRule,
+  saveTransferRules,
+  type TransferRuleMap,
+  type TransferRuleType,
+} from "@/lib/import/transferRules";
+import type { ImportBankOverlapBody } from "@/app/api/import-bank/route";
+
 type BankChoice = "sberbank" | "tbank";
 
 interface ImportBankResult {
@@ -16,6 +27,34 @@ interface ImportBankResult {
   skipped: number;
   duplicates: number;
   errors: string[];
+}
+
+function isOverlapResponse(v: unknown): v is ImportBankOverlapBody {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "warning" in v &&
+    (v as { warning: unknown }).warning === "overlap"
+  );
+}
+
+function isSuccessImportResult(v: unknown): v is ImportBankResult {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.imported === "number" &&
+    Array.isArray(o.errors) &&
+    !("warning" in o && o.warning === "overlap")
+  );
+}
+
+function isErrorShape(v: unknown): v is ImportBankResult {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "errors" in v &&
+    Array.isArray((v as ImportBankResult).errors)
+  );
 }
 
 interface VaultOption {
@@ -53,6 +92,8 @@ function revivePdfTransactions(raw: unknown): ParsedTransaction[] {
     const category = typeof r.category === "string" ? r.category : "";
     const rawCategory = typeof r.rawCategory === "string" ? r.rawCategory : category;
     const type = r.type === "income" || r.type === "expense" || r.type === "transfer" ? r.type : "expense";
+    const needsClassification =
+      typeof r.needsClassification === "boolean" ? r.needsClassification : type === "transfer";
     out.push({
       date,
       amount,
@@ -61,13 +102,25 @@ function revivePdfTransactions(raw: unknown): ParsedTransaction[] {
       category,
       rawCategory,
       type,
+      needsClassification,
       bankSource: "sberbank",
     });
   }
   return out;
 }
 
+function normalizeDescGroup(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function defaultTransferType(row: ParsedTransaction): TransferRuleType {
+  if (row.amount > 0) return "income";
+  if (row.amount < 0) return "expense";
+  return "transfer";
+}
+
 export function BankImportForm({ vaults }: BankImportFormProps) {
+  const router = useRouter();
   const [bank, setBank] = useState<BankChoice>("sberbank");
   const [file, setFile] = useState<File | null>(null);
   const [buffer, setBuffer] = useState<ArrayBuffer | null>(null);
@@ -80,6 +133,16 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
     null
   );
   const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
+  const [wizardStep, setWizardStep] = useState<"preview" | "classify">("preview");
+  const [classificationMap, setClassificationMap] = useState<Map<number, TransferRuleType>>(
+    () => new Map()
+  );
+  const [storedRules, setStoredRules] = useState<TransferRuleMap>({});
+  const [overlapPrompt, setOverlapPrompt] = useState<ImportBankOverlapBody | null>(null);
+
+  useEffect(() => {
+    setStoredRules(loadTransferRules());
+  }, []);
 
   const tbankPreview = useMemo(() => {
     if (bank !== "tbank" || !buffer) return { rows: [] as ParsedTransaction[], errors: [] as string[] };
@@ -128,6 +191,19 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
 
   const previewRows = preview.rows.slice(0, 10);
 
+  const needsTransferClassification = useMemo(
+    () => preview.rows.some((r) => r.needsClassification),
+    [preview.rows]
+  );
+
+  const classificationIndices = useMemo(() => {
+    const idx: number[] = [];
+    preview.rows.forEach((r, i) => {
+      if (r.needsClassification) idx.push(i);
+    });
+    return idx;
+  }, [preview.rows]);
+
   const onPickFile = useCallback(
     async (f: File | null) => {
       setClientError(null);
@@ -152,6 +228,9 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
         return;
       }
       setFile(f);
+      setWizardStep("preview");
+      setClassificationMap(new Map());
+      setOverlapPrompt(null);
       try {
         const buf = await f.arrayBuffer();
         setBuffer(buf);
@@ -173,11 +252,76 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
     [onPickFile]
   );
 
-  const onImport = async () => {
+  const buildClassificationsPayload = useCallback((): Record<number, TransferRuleType> => {
+    const out: Record<number, TransferRuleType> = {};
+    classificationMap.forEach((v, k) => {
+      out[k] = v;
+    });
+    return out;
+  }, [classificationMap]);
+
+  const goToClassification = useCallback(() => {
+    const next = new Map<number, TransferRuleType>();
+    preview.rows.forEach((row, i) => {
+      if (!row.needsClassification) return;
+      const fromRule = matchRuleForDescription(row.description, storedRules);
+      next.set(i, fromRule ?? defaultTransferType(row));
+    });
+    setClassificationMap(next);
+    setWizardStep("classify");
+  }, [preview.rows, storedRules]);
+
+  const setClassificationAt = useCallback((index: number, row: ParsedTransaction, type: TransferRuleType) => {
+    setClassificationMap((prev) => {
+      const m = new Map(prev);
+      m.set(index, type);
+      return m;
+    });
+    const keyword = row.description.trim();
+    if (keyword.length > 0) {
+      setStoredRules((prev) => {
+        const merged = mergeTransferRule(prev, keyword, type);
+        saveTransferRules(merged);
+        return merged;
+      });
+    }
+  }, []);
+
+  const applySimilarClassifications = useCallback(
+    (index: number, type: TransferRuleType) => {
+      const row = preview.rows[index];
+      if (!row?.needsClassification) return;
+      const key = normalizeDescGroup(row.description);
+      setClassificationMap((prev) => {
+        const m = new Map(prev);
+        preview.rows.forEach((r, i) => {
+          if (r.needsClassification && normalizeDescGroup(r.description) === key) {
+            m.set(i, type);
+          }
+        });
+        return m;
+      });
+      const keyword = row.description.trim();
+      if (keyword.length > 0) {
+        setStoredRules((prev) => {
+          const merged = mergeTransferRule(prev, keyword, type);
+          saveTransferRules(merged);
+          return merged;
+        });
+      }
+    },
+    [preview.rows]
+  );
+
+  const runImport = async (forceImport: boolean) => {
     setClientError(null);
     setResult(null);
     if (!file || !vaultId) {
       setClientError("Выберите файл и хранилище.");
+      return;
+    }
+    if (needsTransferClassification && wizardStep !== "classify") {
+      setClientError('Сначала нажмите «Далее» и уточните тип переводов.');
       return;
     }
     setImporting(true);
@@ -187,24 +331,41 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
       fd.append("bank", bank);
       fd.append("vaultId", vaultId);
       fd.append("skipDuplicates", skipDuplicates ? "true" : "false");
+      fd.append("classifications", JSON.stringify(buildClassificationsPayload()));
+      if (forceImport) {
+        fd.append("forceImport", "true");
+      }
 
       const res = await fetch("/api/import-bank", {
         method: "POST",
         body: fd,
       });
-      const json = (await res.json()) as ImportBankResult;
-      if (!res.ok) {
-        setClientError(json.errors[0] ?? `Ошибка ${res.status}`);
-        setResult(json);
+      const json: unknown = await res.json();
+
+      if (res.ok && isOverlapResponse(json)) {
+        setOverlapPrompt(json);
         return;
       }
+
+      if (!res.ok || !isSuccessImportResult(json)) {
+        const err = isErrorShape(json) ? json : null;
+        setClientError(err?.errors[0] ?? `Ошибка ${res.status}`);
+        if (err) setResult(err);
+        return;
+      }
+
+      setOverlapPrompt(null);
       setResult(json);
+      router.refresh();
     } catch {
       setClientError("Сеть недоступна или сервер не ответил.");
     } finally {
       setImporting(false);
     }
   };
+
+  const onImport = () => void runImport(false);
+  const onImportAfterOverlap = () => void runImport(true);
 
   return (
     <div className="space-y-6">
@@ -216,6 +377,9 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
             setResult(null);
             setPdfPreview(null);
             setClientError(null);
+            setOverlapPrompt(null);
+            setWizardStep("preview");
+            setClassificationMap(new Map());
             if (file?.name.toLowerCase().endsWith(".csv")) {
               setFile(null);
               setBuffer(null);
@@ -238,6 +402,9 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
             setResult(null);
             setPdfPreview(null);
             setClientError(null);
+            setOverlapPrompt(null);
+            setWizardStep("preview");
+            setClassificationMap(new Map());
             if (file?.name.toLowerCase().endsWith(".pdf")) {
               setFile(null);
               setBuffer(null);
@@ -347,6 +514,29 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
         </div>
       )}
 
+      {overlapPrompt && (
+        <div className="rounded-lg border border-amber-800/55 bg-amber-950/35 px-4 py-3 text-sm text-amber-50 space-y-3">
+          <p className="font-semibold">⚠️ Пересечение с предыдущим импортом</p>
+          <p className="text-amber-100/95 leading-relaxed">
+            Импорт от {formatDate(new Date(overlapPrompt.overlappingSession.createdAt))}:{" "}
+            <span className="font-medium">{overlapPrompt.overlappingSession.fileName}</span>, период{" "}
+            {formatDate(new Date(overlapPrompt.overlappingSession.dateFrom))}–
+            {formatDate(new Date(overlapPrompt.overlappingSession.dateTo))}
+            <br />
+            Дубли будут автоматически пропущены, но рекомендуем сначала удалить старый импорт через раздел
+            «История импортов».
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => setOverlapPrompt(null)}>
+              Отмена
+            </Button>
+            <Button type="button" size="sm" onClick={() => void onImportAfterOverlap()}>
+              Импортировать (дубли будут пропущены)
+            </Button>
+          </div>
+        </div>
+      )}
+
       {pdfPreviewLoading && bank === "sberbank" && file?.name.toLowerCase().endsWith(".pdf") && (
         <p className="text-sm text-slate-500">Разбор PDF для предпросмотра…</p>
       )}
@@ -365,7 +555,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
         </div>
       )}
 
-      {previewRows.length > 0 && (
+      {wizardStep === "preview" && previewRows.length > 0 && (
         <Card className="border-[hsl(216,34%,17%)] bg-[hsl(222,47%,8%)] p-4">
           <p className="text-sm font-medium text-slate-200 mb-3">Предпросмотр (первые 10 строк)</p>
           <div className="overflow-x-auto">
@@ -410,14 +600,125 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
         </Card>
       )}
 
-      <Button
-        type="button"
-        onClick={() => void onImport()}
-        disabled={importing || !file || !vaultId}
-        className="w-full sm:w-auto"
-      >
-        {importing ? "Импорт…" : "Импортировать"}
-      </Button>
+      {wizardStep === "classify" && classificationIndices.length > 0 && (
+        <Card className="border-[hsl(216,34%,17%)] bg-[hsl(222,47%,8%)] p-4 space-y-4">
+          <div>
+            <p className="text-base font-semibold text-slate-100">Уточни тип переводов</p>
+            <p className="text-sm text-slate-400 mt-1">
+              Банк не может определить — это твой доход, расход или перевод между своими счетами. Укажи тип
+              для каждой операции.
+            </p>
+          </div>
+          <ul className="space-y-4">
+            {classificationIndices.map((index) => {
+              const row = preview.rows[index];
+              if (!row) return null;
+              const current = classificationMap.get(index) ?? defaultTransferType(row);
+              const sameKey = normalizeDescGroup(row.description);
+              const similarTotal = preview.rows.filter(
+                (r) => r.needsClassification && normalizeDescGroup(r.description) === sameKey
+              ).length;
+              return (
+                <li
+                  key={index}
+                  className="rounded-lg border border-[hsl(216,34%,16%)] bg-[hsl(222,47%,6%)] p-3 space-y-3"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 text-sm">
+                    <div>
+                      <p className="text-slate-500 text-xs">{formatDate(row.date)}</p>
+                      <p className="text-slate-200 break-words">{row.description}</p>
+                    </div>
+                    <p
+                      className={cn(
+                        "tabular-nums font-medium shrink-0",
+                        row.amount >= 0 ? "text-green-400" : "text-red-400"
+                      )}
+                    >
+                      {row.amount >= 0 ? "+" : ""}
+                      {formatCurrency(row.amount, row.currency)}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={current === "income" ? "default" : "outline"}
+                      onClick={() => setClassificationAt(index, row, "income")}
+                    >
+                      Доход ↑
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={current === "expense" ? "default" : "outline"}
+                      onClick={() => setClassificationAt(index, row, "expense")}
+                    >
+                      Расход ↓
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={current === "transfer" ? "default" : "outline"}
+                      onClick={() => setClassificationAt(index, row, "transfer")}
+                    >
+                      Мой перевод ⇄
+                    </Button>
+                    {similarTotal > 1 && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => applySimilarClassifications(index, current)}
+                      >
+                        Применить ко всем похожим
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
+
+      <div className="flex flex-wrap gap-3">
+        {wizardStep === "classify" && (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setWizardStep("preview")}
+            disabled={importing}
+          >
+            Назад
+          </Button>
+        )}
+        {wizardStep === "preview" && needsTransferClassification && preview.rows.length > 0 && (
+          <Button
+            type="button"
+            onClick={goToClassification}
+            disabled={importing || !file || !vaultId || pdfPreviewLoading}
+          >
+            Далее
+          </Button>
+        )}
+        {(wizardStep === "classify" || !needsTransferClassification) && (
+          <Button
+            type="button"
+            onClick={() => void onImport()}
+            disabled={
+              importing ||
+              !file ||
+              !vaultId ||
+              (needsTransferClassification && wizardStep !== "classify") ||
+              (wizardStep === "classify" &&
+                classificationIndices.some((i) => !classificationMap.has(i)))
+            }
+            className="w-full sm:w-auto"
+          >
+            {importing ? "Импорт…" : "Импортировать"}
+          </Button>
+        )}
+      </div>
 
       {result && result.imported >= 0 && (
         <div className="rounded-xl border border-[hsl(216,34%,20%)] bg-[hsl(222,47%,8%)] p-4 space-y-3">

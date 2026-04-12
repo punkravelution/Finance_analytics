@@ -219,6 +219,7 @@ export async function parseSberbankPdf(buffer: ArrayBuffer): Promise<ParseSberba
       category: main.category,
       rawCategory: main.category,
       type,
+      needsClassification: type === "transfer",
       bankSource: "sberbank",
     });
 

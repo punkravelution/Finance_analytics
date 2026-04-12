@@ -95,6 +95,7 @@ export function parseSberbankCsv(buffer: ArrayBuffer): ParseSberbankResult {
     const category = cols[4]?.trim() ?? "";
     const currency = (cols[5]?.trim() || "RUB").toUpperCase();
 
+    const type = inferType(description, amount);
     transactions.push({
       date,
       amount,
@@ -102,7 +103,8 @@ export function parseSberbankCsv(buffer: ArrayBuffer): ParseSberbankResult {
       description,
       category,
       rawCategory: category,
-      type: inferType(description, amount),
+      type,
+      needsClassification: type === "transfer",
       bankSource: "sberbank",
     });
   }

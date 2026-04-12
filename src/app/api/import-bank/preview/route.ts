@@ -25,9 +25,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     const buf = await fileEntry.arrayBuffer();
     const parsed = await parseSberbankPdf(buf);
-    const slice = parsed.transactions.slice(0, 10);
     return NextResponse.json({
-      transactions: serializeTransactions(slice),
+      transactions: serializeTransactions(parsed.transactions),
       errors: parsed.errors,
     });
   } catch (e) {
