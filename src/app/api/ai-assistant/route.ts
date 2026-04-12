@@ -8,15 +8,62 @@ export const dynamic = "force-dynamic";
 
 const MODEL = "llama-3.3-70b-versatile" as const;
 
+const CONTEXT_LENGTH_SOFT_LIMIT = 12_000;
+const CONTEXT_SECTION_TRUNCATE_CHARS = 2_000;
+const SECTION_F_MARKER = "=== F) АКТИВЫ (инвестиции и прочее внутри хранилищ) ===";
+const SECTION_G_MARKER = "=== G) ТРАНЗАКЦИОННАЯ АНАЛИТИКА (последние 90 дней) ===";
+const CONTEXT_TRUNCATION_NOTE = "[контекст сокращён из-за большого объёма данных]";
+
+/**
+ * Если полный контекст слишком длинный, укорачивает блоки F (активы) и G (транзакции)
+ * до {@link CONTEXT_SECTION_TRUNCATE_CHARS} символов каждый и добавляет пометку.
+ */
+function applyContextLengthLimit(rawContext: string): string {
+  if (rawContext.length <= CONTEXT_LENGTH_SOFT_LIMIT) {
+    return rawContext;
+  }
+  const idxF = rawContext.indexOf(SECTION_F_MARKER);
+  const idxG = rawContext.indexOf(SECTION_G_MARKER);
+  if (idxF === -1 || idxG === -1 || idxG <= idxF) {
+    return `${rawContext.slice(0, CONTEXT_LENGTH_SOFT_LIMIT)}\n${CONTEXT_TRUNCATION_NOTE}`;
+  }
+  const prefix = rawContext.slice(0, idxF);
+  const blockF = rawContext.slice(idxF, idxG);
+  const blockG = rawContext.slice(idxG);
+  const truncatedF = blockF.slice(0, CONTEXT_SECTION_TRUNCATE_CHARS);
+  const truncatedG = blockG.slice(0, CONTEXT_SECTION_TRUNCATE_CHARS);
+  return `${prefix}${truncatedF}${truncatedG}\n${CONTEXT_TRUNCATION_NOTE}`;
+}
+
 const BOOTSTRAP_USER_MESSAGE =
   "Поприветствуй пользователя и в 2–4 предложениях кратко резюмируй его финансовое положение по данным из контекста. Не перечисляй весь контекст списком — говори по-человечески.";
 
 function buildSystemPrompt(contextBlock: string): string {
-  return `Ты персональный финансовый аналитик. Отвечай строго на русском языке.
-Используй реальные цифры из контекста пользователя — не придумывай данные.
-Будь конкретным и практичным: давай советы с числами, сроками, действиями.
-Если данных недостаточно — честно скажи об этом.
-Контекст финансов пользователя: ${contextBlock}`;
+  return `Ты персональный финансовый советник и аналитик. Твоя задача — помогать пользователю принимать умные финансовые решения на основе его реальных данных.
+
+ПРАВИЛА РАБОТЫ:
+- Отвечай ТОЛЬКО на русском языке
+- Всегда используй реальные цифры из контекста — никогда не придумывай данные
+- Будь конкретным: вместо "сократи расходы" пиши "если сократить расходы на [категория] с X до Y рублей, ты сэкономишь Z рублей в месяц"
+- Давай пошаговые практические советы с числами и сроками
+- Если замечаешь финансовые риски — сообщай о них прямо
+- Умей расставлять приоритеты: сначала погашение долгов с высокой ставкой, потом создание подушки безопасности, потом инвестиции
+
+ТЫ УМЕЕШЬ:
+1. АНАЛИЗ РАСХОДОВ — находить где пользователь тратит больше всего и предлагать конкретное сокращение
+2. ОПТИМИЗАЦИЯ ЦЕЛЕЙ — рассчитывать сколько нужно откладывать в месяц для достижения каждой цели, предлагать стратегии ускорения
+3. УПРАВЛЕНИЕ ДОЛГАМИ — стратегия погашения (лавина или снежный ком), расчёт экономии на процентах
+4. ИНВЕСТИЦИОННЫЕ СОВЕТЫ — анализировать текущий портфель, предлагать диверсификацию (без конкретных рекомендаций по ценным бумагам)
+5. ПЛАНИРОВАНИЕ БЮДЖЕТА — рассчитывать оптимальное распределение свободного денежного потока
+6. ПРЕДУПРЕЖДЕНИЯ — сообщать о просроченных платежах, целях под угрозой, нехватке средств
+
+ФОРМАТ ОТВЕТОВ:
+- Для расчётов используй конкретные числа из контекста
+- Структурируй длинные ответы с заголовками
+- В конце сложных ответов давай краткое резюме "Что делать прямо сейчас"
+
+ТЕКУЩЕЕ ФИНАНСОВОЕ СОСТОЯНИЕ ПОЛЬЗОВАТЕЛЯ:
+${contextBlock}`;
 }
 
 type ClientRole = "user" | "assistant";
@@ -97,9 +144,11 @@ export async function POST(request: NextRequest) {
 
   let contextBlock: string;
   try {
-    contextBlock = includeContext
-      ? await buildFinancialContextForAi()
-      : "нет — свежий снимок из приложения не прикладывался; ориентируйся на сообщения пользователя в чате.";
+    const raw =
+      includeContext
+        ? await buildFinancialContextForAi()
+        : "нет — свежий снимок из приложения не прикладывался; ориентируйся на сообщения пользователя в чате.";
+    contextBlock = includeContext ? applyContextLengthLimit(raw) : raw;
   } catch (e) {
     const message = e instanceof Error ? e.message : "Неизвестная ошибка";
     return NextResponse.json(
@@ -130,7 +179,7 @@ export async function POST(request: NextRequest) {
       model: MODEL,
       messages: [{ role: "system", content: systemContent }, ...userAssistant],
       stream: true,
-      max_tokens: 1024,
+      max_tokens: 2048,
     });
   } catch (e) {
     const message =
@@ -162,6 +211,7 @@ export async function POST(request: NextRequest) {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
+      "X-Context-Length": String(contextBlock.length),
     },
   });
 }

@@ -299,24 +299,41 @@ export function AiAssistant() {
                 <SendHorizontal className="h-4 w-4" aria-hidden />
               </button>
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {(
-                [
-                  "Как достичь целей быстрее?",
-                  "Где трачу больше всего?",
-                  "Сколько могу откладывать?",
-                ] as const
-              ).map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  disabled={isStreaming}
-                  onClick={() => void sendQuick(q)}
-                  className="rounded-full border border-[hsl(216,34%,22%)] bg-[hsl(224,71%,8%)] px-2.5 py-1 text-[11px] text-slate-300 hover:bg-slate-800 disabled:opacity-40"
-                >
-                  {q}
-                </button>
-              ))}
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    "Как быстрее достичь моих целей?",
+                    "Оптимизируй мои расходы",
+                    "Стратегия погашения долгов",
+                  ] as const
+                ).map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    disabled={isStreaming}
+                    onClick={() => void sendQuick(q)}
+                    className="rounded-lg border border-[hsl(216,34%,22%)] bg-[hsl(224,71%,8%)] px-2 py-1.5 text-center text-[10px] leading-tight text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {(["Оцени мой инвестпортфель", "Сколько могу откладывать в месяц?"] as const).map(
+                  (q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      disabled={isStreaming}
+                      onClick={() => void sendQuick(q)}
+                      className="rounded-lg border border-[hsl(216,34%,22%)] bg-[hsl(224,71%,8%)] px-2 py-1.5 text-center text-[10px] leading-tight text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                    >
+                      {q}
+                    </button>
+                  )
+                )}
+              </div>
             </div>
           </div>
         </div>
