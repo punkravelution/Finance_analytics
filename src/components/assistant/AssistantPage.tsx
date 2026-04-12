@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { SendHorizontal, Sparkles } from "lucide-react";
+import { ArrowRight, SendHorizontal, Sparkles } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -205,16 +205,12 @@ export function AssistantPage() {
   const [error, setError] = useState<string | null>(null);
   const [lastStructured, setLastStructured] = useState<StructuredAssistantPayload | null>(null);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const inFlightRef = useRef<AbortController | null>(null);
 
-  const scrollToBottom = useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, []);
-
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, loading, scrollToBottom]);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
   useEffect(
     () => () => {
@@ -265,7 +261,7 @@ export function AssistantPage() {
     []
   );
 
-  const sendMessage = useCallback(
+  const handleSendMessage = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || loading) return;
@@ -294,10 +290,18 @@ export function AssistantPage() {
     [loading, messages, postStructured]
   );
 
+  const onQuickQuestion = useCallback(
+    (question: string) => {
+      setInput(question);
+      void handleSendMessage(question);
+    },
+    [handleSendMessage]
+  );
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      void sendMessage(input);
+      void handleSendMessage(input);
     }
   };
 
@@ -307,35 +311,23 @@ export function AssistantPage() {
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <div className="grid flex-1 min-h-0 grid-cols-1 gap-4 p-4 lg:grid-cols-12 lg:gap-6 lg:p-6">
-        <section className="flex min-h-0 flex-col rounded-xl border border-[hsl(216,34%,17%)] bg-[hsl(222,47%,7%)] lg:col-span-5">
-          <div className="flex items-center gap-2 border-b border-[hsl(216,34%,17%)] px-4 py-3">
+        <section
+          className="min-h-0 rounded-xl border border-[hsl(216,34%,17%)] bg-[hsl(222,47%,7%)] lg:col-span-5"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            height: "calc(100vh - 120px)",
+          }}
+        >
+          <div className="flex shrink-0 items-center gap-2 border-b border-[hsl(216,34%,17%)] px-4 py-3">
             <Sparkles className="h-5 w-5 text-indigo-400 shrink-0" aria-hidden />
             <span className="text-sm font-semibold text-white">ИИ-аналитик</span>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto scroll-smooth px-4 py-3">
             {error && (
               <div className="rounded-lg border border-red-900/60 bg-red-950/40 px-2.5 py-2 text-xs text-red-200">
                 {error}
-              </div>
-            )}
-
-            {messages.length === 0 && !loading && (
-              <div className="space-y-2">
-                <p className="text-xs text-slate-500">Быстрые вопросы:</p>
-                <div className="flex flex-col gap-2">
-                  {QUICK_QUESTIONS.map((q) => (
-                    <button
-                      key={q}
-                      type="button"
-                      disabled={loading}
-                      onClick={() => void sendMessage(q)}
-                      className="rounded-lg border border-[hsl(216,34%,22%)] bg-[hsl(224,71%,8%)] px-3 py-2 text-left text-xs text-slate-300 hover:bg-slate-800/80 disabled:opacity-40"
-                    >
-                      {q}
-                    </button>
-                  ))}
-                </div>
               </div>
             )}
 
@@ -368,10 +360,28 @@ export function AssistantPage() {
                 </div>
               </div>
             )}
-            <div ref={bottomRef} />
+            <div ref={messagesEndRef} />
           </div>
 
-          <div className="shrink-0 border-t border-[hsl(216,34%,17%)] p-3">
+          <div className="flex shrink-0 flex-col gap-3 border-t border-[hsl(216,34%,17%)] p-3">
+            {messages.length === 0 && !loading && (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-500">Быстрые вопросы:</p>
+                <div className="flex flex-col gap-2">
+                  {QUICK_QUESTIONS.map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      disabled={loading}
+                      onClick={() => onQuickQuestion(q)}
+                      className="rounded-lg border border-[hsl(216,34%,22%)] bg-[hsl(224,71%,8%)] px-3 py-2 text-left text-xs text-slate-300 transition-colors hover:bg-slate-800/80 hover:border-indigo-500/30 disabled:opacity-40"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex gap-2">
               <input
                 type="text"
@@ -384,7 +394,7 @@ export function AssistantPage() {
               />
               <button
                 type="button"
-                onClick={() => void sendMessage(input)}
+                onClick={() => void handleSendMessage(input)}
                 disabled={loading || !input.trim()}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
               >
@@ -445,14 +455,15 @@ export function AssistantPage() {
                   <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500 mb-2">
                     Действия
                   </p>
-                  <ul className="space-y-2">
+                  <ul className="space-y-2.5">
                     {lastStructured.actions.map((action, idx) => (
-                      <li key={`${idx}-${action.slice(0, 32)}`} className="flex items-start gap-2">
-                        <input
-                          type="checkbox"
-                          defaultChecked={false}
-                          className="mt-1 h-3.5 w-3.5 rounded border-slate-600 text-indigo-500 focus:ring-indigo-500/40"
-                          aria-label={`Действие: ${action}`}
+                      <li
+                        key={`${idx}-${action.slice(0, 32)}`}
+                        className="flex items-start gap-2 rounded-lg border border-[hsl(216,34%,17%)] bg-[hsl(224,71%,8%)] px-3 py-2"
+                      >
+                        <ArrowRight
+                          className="mt-0.5 h-4 w-4 shrink-0 text-indigo-400"
+                          aria-hidden
                         />
                         <span className="text-sm text-slate-300 leading-snug">{action}</span>
                       </li>

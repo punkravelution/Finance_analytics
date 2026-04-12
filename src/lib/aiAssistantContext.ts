@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getVaultSummaries, getDashboardStats } from "@/lib/analytics";
 import { getBaseCurrency, getExchangeRates, convertAmount, type ExchangeRateMap } from "@/lib/currency";
-import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
+import { formatCurrency, formatDate, formatNumber, formatPercent } from "@/lib/format";
 import { getTotalMonthlyIncome } from "@/app/actions/recurringIncome";
 import { getGoalsProgress } from "@/app/actions/goal";
 import {
@@ -125,11 +125,73 @@ async function getTransactionTotals90d(
   return { incomeBase, expenseBase };
 }
 
+interface MonthWindow {
+  key: string;
+  titleLong: string;
+  labelShort: string;
+  start: Date;
+  end: Date;
+}
+
+function capitalizeFirstRu(s: string): string {
+  if (!s) return s;
+  return s.charAt(0).toLocaleUpperCase("ru-RU") + s.slice(1);
+}
+
+function buildThreeMonthWindows(now: Date): MonthWindow[] {
+  const out: MonthWindow[] = [];
+  for (let offset = 2; offset >= 0; offset -= 1) {
+    const ref = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const y = ref.getFullYear();
+    const m = ref.getMonth();
+    const start = new Date(y, m, 1, 0, 0, 0, 0);
+    const isCurrent = y === now.getFullYear() && m === now.getMonth();
+    const end = isCurrent
+      ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+      : new Date(y, m + 1, 0, 23, 59, 59, 999);
+    const key = `${y}-${String(m + 1).padStart(2, "0")}`;
+    const titleLong = capitalizeFirstRu(
+      new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" }).format(start)
+    );
+    const shortRaw = new Intl.DateTimeFormat("ru-RU", { month: "short" }).format(start);
+    const labelShort = shortRaw.replace(/\.$/, "").trim();
+    out.push({ key, titleLong, labelShort, start, end });
+  }
+  return out;
+}
+
+function monthKeyForDate(windows: MonthWindow[], date: Date): string | null {
+  const t = date.getTime();
+  for (const w of windows) {
+    if (t >= w.start.getTime() && t <= w.end.getTime()) return w.key;
+  }
+  return null;
+}
+
+type ThreeMonthTxRow = {
+  type: string;
+  amount: number;
+  currency: string;
+  date: Date;
+  categoryId: string | null;
+  category: { name: string } | null;
+};
+
 /** Текстовый снимок для подстановки в system prompt (русский). */
 export async function buildFinancialContextForAi(): Promise<string> {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  const threeMonthStart = new Date(now.getFullYear(), now.getMonth() - 2, 1, 0, 0, 0, 0);
+  const threeMonthEnd = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    23,
+    59,
+    59,
+    999
+  );
 
   const [baseCurrency, rates] = await Promise.all([getBaseCurrency(), getExchangeRates()]);
 
@@ -148,6 +210,7 @@ export async function buildFinancialContextForAi(): Promise<string> {
     linkedIncomeMonth,
     linkedSubMonth,
     linkedPlannedMonth,
+    txThreeMonthForAi,
   ] = await Promise.all([
     getVaultSummaries(),
     getDashboardStats(),
@@ -199,6 +262,20 @@ export async function buildFinancialContextForAi(): Promise<string> {
         date: { gte: monthStart, lte: monthEnd },
       },
       select: { plannedExpenseId: true },
+    }),
+    prisma.transaction.findMany({
+      where: {
+        date: { gte: threeMonthStart, lte: threeMonthEnd },
+        type: { in: ["income", "expense"] },
+      },
+      select: {
+        type: true,
+        amount: true,
+        currency: true,
+        date: true,
+        categoryId: true,
+        category: { select: { name: true } },
+      },
     }),
   ]);
 
@@ -475,6 +552,187 @@ export async function buildFinancialContextForAi(): Promise<string> {
   }
   lines.push(
     `Итог по неоплаченным планам: записей ${plannedUnpaid.length}, из них с подтверждающей транзакцией в текущем месяце: ${plannedWithTxThisMonth}.`
+  );
+  lines.push("");
+
+  // ─── H) Расходы по категориям (3 месяца) + I) доходы/расходы по месяцам + J) время и СДП ───
+  const windows = buildThreeMonthWindows(now);
+  const tx3: ThreeMonthTxRow[] = txThreeMonthForAi.map((t) => ({
+    type: t.type,
+    amount: t.amount,
+    currency: t.currency,
+    date: t.date,
+    categoryId: t.categoryId,
+    category: t.category,
+  }));
+
+  lines.push("=== H) РАСХОДЫ ПО КАТЕГОРИЯМ (последние 3 месяца) ===");
+  type CatAgg = { name: string; sums: Record<string, number> };
+  const catMap = new Map<string, CatAgg>();
+  let uncategorizedExpenseCount = 0;
+  let uncategorizedExpenseSumBase = 0;
+
+  for (const row of tx3) {
+    if (row.type !== "expense") continue;
+    const mk = monthKeyForDate(windows, row.date);
+    if (!mk) continue;
+    const inBase = convertAmount(row.amount, row.currency, baseCurrency, rates);
+    if (row.categoryId == null) {
+      uncategorizedExpenseCount += 1;
+      uncategorizedExpenseSumBase += inBase;
+    }
+    const ck = row.categoryId ?? "__uncategorized__";
+    const nm = row.category?.name ?? "Без категории";
+    const cur = catMap.get(ck) ?? { name: nm, sums: {} };
+    if (row.categoryId != null) cur.name = nm;
+    cur.sums[mk] = (cur.sums[mk] ?? 0) + inBase;
+    catMap.set(ck, cur);
+  }
+
+  const rankedCats = [...catMap.entries()]
+    .map(([id, v]) => {
+      let total = 0;
+      for (const w of windows) {
+        total += v.sums[w.key] ?? 0;
+      }
+      return { id, name: v.name, sums: v.sums, total };
+    })
+    .sort((a, b) => b.total - a.total);
+
+  if (rankedCats.length === 0) {
+    lines.push("Нет расходных транзакций за последние 3 календарных месяца.");
+  } else {
+    lines.push("По категориям (суммы в базовой валюте по месяцам):");
+    for (const row of rankedCats.slice(0, 10)) {
+      const parts = windows.map((w) => {
+        const v = row.sums[w.key] ?? 0;
+        return `${w.labelShort} ${formatCurrency(v, baseCurrency)}`;
+      });
+      const first = row.sums[windows[0].key] ?? 0;
+      const last = row.sums[windows[windows.length - 1].key] ?? 0;
+      let trend = "";
+      if (first > 0) {
+        const pct = ((last - first) / first) * 100;
+        trend =
+          Math.abs(pct) < 0.05
+            ? ""
+            : ` (${pct >= 0 ? "рост" : "снижение"} ${formatPercent(pct)})`;
+      } else if (first <= 0 && last > 0) {
+        trend = " (рост с нуля)";
+      }
+      lines.push(`  — ${row.name}: ${parts.join(", ")}${trend}`);
+    }
+  }
+  lines.push(
+    `Без категории (расходы без categoryId за период): ${uncategorizedExpenseCount} транзакций на сумму ${formatCurrency(uncategorizedExpenseSumBase, baseCurrency)}.`
+  );
+  lines.push("");
+
+  lines.push("=== I) ДОХОДЫ И РАСХОДЫ ПО МЕСЯЦАМ (транзакции, базовая валюта) ===");
+  const incByMonth: Record<string, number> = {};
+  const expByMonth: Record<string, number> = {};
+  for (const w of windows) {
+    incByMonth[w.key] = 0;
+    expByMonth[w.key] = 0;
+  }
+  for (const row of tx3) {
+    const mk = monthKeyForDate(windows, row.date);
+    if (!mk) continue;
+    const v = convertAmount(row.amount, row.currency, baseCurrency, rates);
+    if (row.type === "income") incByMonth[mk] = (incByMonth[mk] ?? 0) + v;
+    if (row.type === "expense") expByMonth[mk] = (expByMonth[mk] ?? 0) + v;
+  }
+  for (const w of windows) {
+    const inc = incByMonth[w.key] ?? 0;
+    const exp = expByMonth[w.key] ?? 0;
+    const saved = inc - exp;
+    const ratePct = inc > 0 ? (saved / inc) * 100 : null;
+    lines.push(
+      `${w.titleLong}: доход ${formatCurrency(inc, baseCurrency)}, расход ${formatCurrency(exp, baseCurrency)}, сохранено ${formatCurrency(saved, baseCurrency)}${
+        ratePct != null && Number.isFinite(ratePct)
+          ? ` (${ratePct.toFixed(1)}%)`
+          : " (норма сбережений не определена — нет доходов в месяце)"
+      }.`
+    );
+  }
+  lines.push("");
+
+  lines.push("=== J) ВРЕМЕННОЙ КОНТЕКСТ И РАСШИРЕННЫЙ СВОБОДНЫЙ ДЕНЕЖНЫЙ ПОТОК ===");
+  lines.push(`Сегодня (локально): ${now.toLocaleDateString("ru-RU")}.`);
+
+  const salaryRows = recurringIncomes.filter((r) => r.category === "salary" && r.isActive);
+  if (salaryRows.length === 0) {
+    lines.push(
+      "Дней до следующей зарплаты: не вычисляется — нет активного RecurringIncome с категорией «salary»."
+    );
+  } else {
+    const nextSal = [...salaryRows].sort(
+      (a, b) => a.nextIncomeDate.getTime() - b.nextIncomeDate.getTime()
+    )[0];
+    if (nextSal) {
+      const dSal = daysUntilDue(nextSal.nextIncomeDate);
+      lines.push(
+        `Ближайшая зарплата (справочник): «${nextSal.name}», дата ${formatDate(nextSal.nextIncomeDate)}, дней от сегодня: ${dSal}.`
+      );
+    }
+  }
+
+  const liabDates = liabilities
+    .map((l) => l.nextPaymentDate)
+    .filter((d): d is Date => d != null);
+  const nearestLiabDate =
+    liabDates.length > 0
+      ? liabDates.reduce((a, b) => (a.getTime() <= b.getTime() ? a : b))
+      : null;
+  if (nearestLiabDate) {
+    lines.push(
+      `Ближайший платёж по обязательству (Liability.nextPaymentDate): ${formatDate(nearestLiabDate)}, дней: ${daysUntilDue(nearestLiabDate)}.`
+    );
+  } else {
+    lines.push(
+      "Ближайший платёж по обязательству: не задан (у активных долгов нет nextPaymentDate)."
+    );
+  }
+
+  const plannedDates = plannedUnpaid
+    .map((p) => p.dueDate)
+    .filter((d): d is Date => d != null);
+  const nearestPlannedDate =
+    plannedDates.length > 0
+      ? plannedDates.reduce((a, b) => (a.getTime() <= b.getTime() ? a : b))
+      : null;
+  if (nearestPlannedDate) {
+    lines.push(
+      `Ближайший запланированный платёж (PlannedExpense): ${formatDate(nearestPlannedDate)}, дней: ${daysUntilDue(nearestPlannedDate)}.`
+    );
+  } else {
+    lines.push(
+      "Ближайший запланированный платёж: нет неоплаченных PlannedExpense с указанной датой."
+    );
+  }
+
+  let minPaymentsMonthlyBase = 0;
+  for (const l of liabilities) {
+    const mp = l.minimumPayment ?? 0;
+    minPaymentsMonthlyBase += convertAmount(mp, l.currency, baseCurrency, rates);
+  }
+  const fcfStrict =
+    recurringTotals.totalMonthly - subscriptionsMonthlyBase - minPaymentsMonthlyBase;
+  let goalsMonthlyNeedBase = 0;
+  for (const g of goalsProgress) {
+    if (g.isCompleted) continue;
+    if (g.monthlyRequired == null || !Number.isFinite(g.monthlyRequired)) continue;
+    goalsMonthlyNeedBase += convertAmount(g.monthlyRequired, g.currency, baseCurrency, rates);
+  }
+  const remainderAfterGoals = fcfStrict - goalsMonthlyNeedBase;
+  lines.push(
+    `СДП (строго): регулярные доходы/мес ${formatCurrency(recurringTotals.totalMonthly, baseCurrency)} − подписки/мес ${formatCurrency(subscriptionsMonthlyBase, baseCurrency)} − мин. платежи по долгам/мес ${formatCurrency(minPaymentsMonthlyBase, baseCurrency)} = ${formatCurrency(fcfStrict, baseCurrency)}.`
+  );
+  lines.push(
+    `Оценка взносов на цели (сумма «нужно в месяц» по незавершённым целям с дедлайном, в ${baseCurrency}): ${formatCurrency(goalsMonthlyNeedBase, baseCurrency)}.`
+  );
+  lines.push(
+    `Остаток после целей (СДП − взносы на цели): ${formatCurrency(remainderAfterGoals, baseCurrency)}.`
   );
   lines.push("");
 

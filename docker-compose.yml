@@ -1,0 +1,18 @@
+# Локальная PostgreSQL для разработки (Docker Desktop).
+# Запуск: docker compose up -d
+# Затем: npx prisma migrate deploy && npm run db:seed
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: financeapp
+    ports:
+      - "5432:5432"
+    volumes:
+      - finance_pg_data:/var/lib/postgresql/data
+
+volumes:
+  finance_pg_data:
