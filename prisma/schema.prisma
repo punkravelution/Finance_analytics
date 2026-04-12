@@ -51,6 +51,8 @@ model Vault {
   snapshots        VaultSnapshot[]
   subscriptions    Subscription[]
   recurringIncomes RecurringIncome[]
+  goals            Goal[]
+  plannedExpenses  PlannedExpense[]
 }
 
 // ─── Актив внутри хранилища ───────────────────────────────────────────────────
@@ -236,6 +238,44 @@ model RecurringIncome {
   updatedAt      DateTime @updatedAt
 
   vault          Vault    @relation(fields: [vaultId], references: [id])
+}
+
+// ─── Финансовые цели ──────────────────────────────────────────────────────────
+
+model Goal {
+  id            String    @id @default(cuid())
+  name          String
+  targetAmount  Float
+  currentAmount Float     @default(0)
+  currency      String    @default("RUB")
+  targetDate    DateTime?
+  vaultId       String?
+  category      String    @default("other") // gadget | travel | education | realty | emergency | other
+  priority      String    @default("medium") // low | medium | high
+  isCompleted   Boolean   @default(false)
+  note          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  vault         Vault?    @relation(fields: [vaultId], references: [id], onDelete: SetNull)
+}
+
+// ─── Запланированные платежи ─────────────────────────────────────────────────
+
+model PlannedExpense {
+  id        String   @id @default(cuid())
+  name      String
+  amount    Float
+  currency  String   @default("RUB")
+  dueDate   DateTime
+  vaultId   String?
+  category  String   @default("other") // education | tax | medical | insurance | subscription | other
+  isPaid    Boolean  @default(false)
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vault     Vault?   @relation(fields: [vaultId], references: [id], onDelete: SetNull)
 }
 
 // ─── Долги / обязательства ────────────────────────────────────────────────────

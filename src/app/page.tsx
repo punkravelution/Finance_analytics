@@ -15,6 +15,12 @@ import { Card } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
 import { getExchangeRates, getBaseCurrency, convertAmount } from "@/lib/currency";
 import { getTotalMonthlyIncome } from "@/app/actions/recurringIncome";
+import { getGoalsProgress } from "@/app/actions/goal";
+import { getUpcomingExpenses } from "@/app/actions/plannedExpense";
+import {
+  DashboardGoalsPreview,
+  DashboardPlannedPreview,
+} from "@/components/dashboard/DashboardGoalsAndPlanned";
 
 export const dynamic = "force-dynamic";
 
@@ -45,13 +51,26 @@ async function getCapitalChartData() {
 }
 
 export default async function HomePage() {
-  const [stats, vaults, transactions, chartData, recurringIncomeTotals] = await Promise.all([
+  const [
+    stats,
+    vaults,
+    transactions,
+    chartData,
+    recurringIncomeTotals,
+    goalsProgress,
+    upcomingExpenses,
+  ] = await Promise.all([
     getDashboardStats(),
     getVaultSummaries(),
     getRecentTransactions(30),
     getCapitalChartData(),
     getTotalMonthlyIncome(),
+    getGoalsProgress(),
+    getUpcomingExpenses(),
   ]);
+
+  const topGoals = goalsProgress.filter((g) => !g.isCompleted).slice(0, 3);
+  const topPlanned = upcomingExpenses.slice(0, 3);
 
   const now = new Date();
   const monthName = now.toLocaleString("ru-RU", { month: "long" });
@@ -182,6 +201,11 @@ export default async function HomePage() {
         <div>
           <AllocationChart vaults={vaults} />
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+        <DashboardGoalsPreview goals={topGoals} />
+        <DashboardPlannedPreview expenses={topPlanned} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">

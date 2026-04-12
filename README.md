@@ -1,5 +1,17 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## AI-ассистент
+
+Плавающий чат «Финансовый ИИ» использует [Groq](https://groq.com/) (бесплатный тир).
+
+1. Зарегистрируйтесь на [console.groq.com](https://console.groq.com/).
+2. Создайте API key в разделе ключей.
+3. В корне проекта создайте файл `.env.local` и добавьте строку  
+   `GROQ_API_KEY=gsk_...`  
+   (подставьте свой ключ вместо `gsk_...`).
+
+Перезапустите dev-сервер после изменения `.env.local`.
+
 ## Getting Started
 
 First, run the development server:

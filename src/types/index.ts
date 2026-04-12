@@ -153,3 +153,49 @@ export interface CreateRecurringIncomeInput {
   isActive?: boolean;
   note?: string;
 }
+
+// ─── Goal ─────────────────────────────────────────────────────────────────────
+
+export type GoalCategory =
+  | "gadget"
+  | "travel"
+  | "education"
+  | "realty"
+  | "emergency"
+  | "other";
+
+export type GoalPriority = "low" | "medium" | "high";
+
+export interface CreateGoalInput {
+  name: string;
+  targetAmount: number;
+  currentAmount?: number;
+  currency: string;
+  targetDate?: Date | null;
+  vaultId?: string | null;
+  category: GoalCategory;
+  priority: GoalPriority;
+  isCompleted?: boolean;
+  note?: string | null;
+}
+
+// ─── Planned expense ─────────────────────────────────────────────────────────
+
+export type PlannedExpenseCategory =
+  | "education"
+  | "tax"
+  | "medical"
+  | "insurance"
+  | "subscription"
+  | "other";
+
+export interface CreatePlannedExpenseInput {
+  name: string;
+  amount: number;
+  currency: string;
+  dueDate: Date;
+  vaultId?: string | null;
+  category: PlannedExpenseCategory;
+  isPaid?: boolean;
+  note?: string | null;
+}
