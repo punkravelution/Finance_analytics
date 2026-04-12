@@ -208,26 +208,32 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportBan
     let duplicates = 0;
     const errors = [...parsed.errors];
 
-    await prisma.$transaction(async (tx) => {
-      const client = tx as TxClient;
-      for (const row of parsed.transactions) {
-        const amountAbs = Math.abs(row.amount);
-        if (skipDuplicates) {
-          const dup = await existsDuplicateForImport(client, vaultId, row.date, amountAbs, row.description);
-          if (dup) {
-            duplicates += 1;
-            continue;
+    /** Импорт может быть длинным (много строк × проверка дубликатов + create); дефолт Prisma 5s не хватает. */
+    const IMPORT_TX_TIMEOUT_MS = 120_000;
+
+    await prisma.$transaction(
+      async (tx) => {
+        const client = tx as TxClient;
+        for (const row of parsed.transactions) {
+          const amountAbs = Math.abs(row.amount);
+          if (skipDuplicates) {
+            const dup = await existsDuplicateForImport(client, vaultId, row.date, amountAbs, row.description);
+            if (dup) {
+              duplicates += 1;
+              continue;
+            }
           }
+
+          const categoryId = resolveCategory(row.rawCategory);
+          const data = buildCreateInput(row, vaultId, categoryId);
+
+          await client.transaction.create({ data });
+          await applyEffectsForCreated(client, data);
+          imported += 1;
         }
-
-        const categoryId = resolveCategory(row.rawCategory);
-        const data = buildCreateInput(row, vaultId, categoryId);
-
-        await client.transaction.create({ data });
-        await applyEffectsForCreated(client, data);
-        imported += 1;
-      }
-    });
+      },
+      { timeout: IMPORT_TX_TIMEOUT_MS, maxWait: 15_000 }
+    );
 
     revalidatePath("/transactions");
     revalidatePath("/vaults");
