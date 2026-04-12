@@ -52,20 +52,17 @@ export default async function SettingsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-slate-400 mb-3">
-              Приложение использует локальную SQLite базу данных.
+              Приложение использует PostgreSQL (рекомендуется Neon). Подключение задаётся переменной окружения{" "}
+              <code className="text-slate-300">DATABASE_URL</code>.
             </p>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-slate-500">Провайдер</span>
-                <span className="text-slate-300">SQLite (better-sqlite3)</span>
+                <span className="text-slate-300">PostgreSQL (Neon)</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">ORM</span>
                 <span className="text-slate-300">Prisma 7</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Файл БД</span>
-                <span className="font-mono text-slate-300 text-xs">./dev.db</span>
               </div>
             </div>
           </CardContent>

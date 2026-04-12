@@ -3,8 +3,9 @@ generator client {
   output   = "../src/generated/prisma"
 }
 
+// Строка подключения: prisma.config.ts → переменная окружения DATABASE_URL (Prisma 7).
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 // ─── Категории операций ───────────────────────────────────────────────────────

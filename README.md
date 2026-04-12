@@ -6,11 +6,13 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 1. Зарегистрируйтесь на [console.groq.com](https://console.groq.com/).
 2. Создайте API key в разделе ключей.
-3. В корне проекта создайте файл `.env.local` и добавьте строку  
-   `GROQ_API_KEY=gsk_...`  
-   (подставьте свой ключ вместо `gsk_...`).
+3. В корне проекта создайте файл `.env.local` (см. пример в `.env.example`) и добавьте:
+   - `DATABASE_URL` — строка подключения PostgreSQL (Neon);
+   - `GROQ_API_KEY=gsk_...` — ключ Groq.
 
 Перезапустите dev-сервер после изменения `.env.local`.
+
+Первый раз после смены БД выполните: `npx prisma migrate dev` (применит миграции к Neon) и при необходимости `npm run db:seed`.
 
 ## Getting Started
 
@@ -41,8 +43,20 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
+## Деплой на Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Создайте проект базы данных на [neon.tech](https://neon.tech), скопируйте строку подключения `DATABASE_URL` (для продакшена удобно использовать вариант с **pooled** и `sslmode=require`).
+2. Подключите репозиторий к [vercel.com](https://vercel.com) и создайте новый проект (фреймворк Next.js подхватится автоматически).
+3. В настройках проекта Vercel → **Settings** → **Environment Variables** добавьте:
+   - `DATABASE_URL` — строка от Neon;
+   - `GROQ_API_KEY` — ключ из [console.groq.com](https://console.groq.com/).
+4. Деплой: при сборке выполняются `prisma generate`, `prisma migrate deploy` и `next build` (см. `vercel.json` и скрипт `build` в `package.json`).
+5. После деплоя откройте **Deployments** → последний деплой → **Building** / **Runtime Logs** и убедитесь, что миграции прошли без ошибок.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Локально перед пушем: `npx prisma generate`, затем задайте `DATABASE_URL` в `.env.local` и выполните `npx prisma migrate deploy` (или `migrate dev`) к Neon. Команда **`npm run build`** запускает `prisma migrate deploy` и поэтому тоже требует `DATABASE_URL`. Проверка только компиляции Next без миграций: `npx next build` (клиент Prisma подключается к БД лениво, при первом обращении).
+
+## Deploy on Vercel (English)
+
+The app targets the [Vercel Platform](https://vercel.com) with PostgreSQL (Neon). See the Russian section above for environment variables and build steps.
+
+Further reading: [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying).
