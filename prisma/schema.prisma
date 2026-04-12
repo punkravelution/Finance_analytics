@@ -64,6 +64,7 @@ model Asset {
   name              String
   assetType         String           // stock | crypto | bond | etf | commodity | real_estate | item | other
   ticker            String?
+  coinGeckoId       String? // id монеты в API CoinGecko (простая цена / поиск)
   steamMarketHashName String?
   quantity          Float            @default(0)
   unit              String           @default("шт")

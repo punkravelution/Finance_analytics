@@ -38,6 +38,7 @@ interface AssetFormProps {
     currentUnitPrice?: number | null;
     currency?: string;
     notes?: string | null;
+    coinGeckoId?: string | null;
   };
   cancelHref: string;
   submitLabel?: string;
@@ -50,6 +51,13 @@ interface SteamSearchResult {
   name: string;
   hash_name: string;
   price: string;
+}
+
+interface CryptoSearchResult {
+  id: string;
+  name: string;
+  symbol: string;
+  market_cap_rank: number | null;
 }
 
 function parseSteamSearchPrice(rawPrice: string): { value: number; currency: string } | null {
@@ -83,6 +91,7 @@ export function AssetForm({
   const [steamMarketHashName, setSteamMarketHashName] = useState(
     defaultValues.steamMarketHashName ?? ""
   );
+  const [coinGeckoId, setCoinGeckoId] = useState(defaultValues.coinGeckoId ?? "");
   const [quantity, setQuantity] = useState(
     defaultValues.quantity != null ? String(defaultValues.quantity) : ""
   );
@@ -108,9 +117,15 @@ export function AssetForm({
   const [updatingMoexPrice, setUpdatingMoexPrice] = useState(false);
   const [moexError, setMoexError] = useState("");
   const [steamRubUnitPrice, setSteamRubUnitPrice] = useState<number | null>(null);
+  const [cryptoOptions, setCryptoOptions] = useState<CryptoSearchResult[]>([]);
+  const [searchingCrypto, setSearchingCrypto] = useState(false);
+  const [updatingCryptoPrice, setUpdatingCryptoPrice] = useState(false);
+  const [cryptoRubUnitPrice, setCryptoRubUnitPrice] = useState<number | null>(null);
   const isSteamItem = assetType === "item";
+  const isCrypto = assetType === "crypto";
   const isStock = assetType === "stock";
   const canRefreshSteamPrice = isSteamItem && steamMarketHashName.length > 0;
+  const canRefreshCryptoPrice = isCrypto && coinGeckoId.trim().length > 0;
   const canRefreshMoexPrice = isStock && ticker.trim().length > 0;
 
   useEffect(() => {
@@ -120,6 +135,14 @@ export function AssetForm({
       setSteamRubUnitPrice(null);
     }
   }, [isSteamItem]);
+
+  useEffect(() => {
+    if (!isCrypto) {
+      setCryptoOptions([]);
+      setCoinGeckoId("");
+      setCryptoRubUnitPrice(null);
+    }
+  }, [isCrypto]);
 
   useEffect(() => {
     if (!isStock) setMoexError("");
@@ -142,6 +165,30 @@ export function AssetForm({
       setSteamRubUnitPrice(current * rateToRub);
     }
   }, [defaultValues.currentUnitPrice, defaultValues.currency, defaultValues.steamMarketHashName, isSteamItem, ratesToRub]);
+
+  useEffect(() => {
+    if (!isCrypto || !defaultValues.coinGeckoId) return;
+
+    const current = defaultValues.currentUnitPrice;
+    const currentCurrency = (defaultValues.currency ?? "RUB").toUpperCase();
+    if (current == null || !Number.isFinite(current) || current <= 0) return;
+
+    if (currentCurrency === "RUB") {
+      setCryptoRubUnitPrice(current);
+      return;
+    }
+
+    const rateToRub = ratesToRub[currentCurrency];
+    if (rateToRub && rateToRub > 0) {
+      setCryptoRubUnitPrice(current * rateToRub);
+    }
+  }, [
+    defaultValues.coinGeckoId,
+    defaultValues.currentUnitPrice,
+    defaultValues.currency,
+    isCrypto,
+    ratesToRub,
+  ]);
 
   useEffect(() => {
     if (!isSteamItem || name.trim().length < 3) {
@@ -176,12 +223,101 @@ export function AssetForm({
     };
   }, [isSteamItem, name]);
 
+  useEffect(() => {
+    if (!isCrypto || name.trim().length < 2) {
+      setCryptoOptions([]);
+      setSearchingCrypto(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setSearchingCrypto(true);
+      try {
+        const response = await fetch(`/api/crypto-search?q=${encodeURIComponent(name.trim())}`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          setCryptoOptions([]);
+          return;
+        }
+        const results = (await response.json()) as CryptoSearchResult[];
+        setCryptoOptions(Array.isArray(results) ? results : []);
+      } catch {
+        setCryptoOptions([]);
+      } finally {
+        setSearchingCrypto(false);
+      }
+    }, 500);
+
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [isCrypto, name]);
+
   const steamHint = useMemo(() => {
     if (!isSteamItem) return "";
     if (searchingSteam) return "Поиск предметов Steam...";
     if (name.trim().length < 3) return "Введите минимум 3 символа для поиска в Steam";
     return "";
   }, [isSteamItem, name, searchingSteam]);
+
+  const cryptoHint = useMemo(() => {
+    if (!isCrypto) return "";
+    if (searchingCrypto) return "Поиск в CoinGecko…";
+    if (name.trim().length < 2) return "Введите минимум 2 символа, затем выберите монету из списка";
+    return "";
+  }, [isCrypto, name, searchingCrypto]);
+
+  async function updateCryptoPriceById(geckoId: string): Promise<boolean> {
+    setUpdatingCryptoPrice(true);
+    try {
+      const response = await fetch(`/api/crypto-price?id=${encodeURIComponent(geckoId)}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) return false;
+      const json = (await response.json()) as { rub?: number | null; usd?: number | null };
+      const rub =
+        typeof json.rub === "number" && Number.isFinite(json.rub) && json.rub > 0 ? json.rub : null;
+      const usd =
+        typeof json.usd === "number" && Number.isFinite(json.usd) && json.usd > 0 ? json.usd : null;
+
+      const usdToRub = ratesToRub["USD"];
+      const priceRubEquivalent =
+        rub ??
+        (usd != null && usdToRub != null && usdToRub > 0 ? usd * usdToRub : null);
+      if (priceRubEquivalent == null || !Number.isFinite(priceRubEquivalent) || priceRubEquivalent <= 0) {
+        return false;
+      }
+
+      setCryptoRubUnitPrice(priceRubEquivalent);
+      if (currency === "RUB") {
+        setCurrentUnitPrice(String(priceRubEquivalent));
+      } else {
+        const rateToRub = ratesToRub[currency];
+        if (rateToRub && rateToRub > 0) {
+          setCurrentUnitPrice(String(priceRubEquivalent / rateToRub));
+        } else {
+          setCurrentUnitPrice(String(priceRubEquivalent));
+          setCurrency("RUB");
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setUpdatingCryptoPrice(false);
+    }
+  }
+
+  async function selectCryptoCoin(item: CryptoSearchResult) {
+    setName(item.name);
+    setTicker(item.symbol);
+    setCoinGeckoId(item.id);
+    setCryptoOptions([]);
+    await updateCryptoPriceById(item.id);
+  }
 
   async function updateSteamPriceByHash(hashName: string): Promise<boolean> {
     setUpdatingSteamPrice(true);
@@ -274,16 +410,27 @@ export function AssetForm({
   function handleCurrencyChange(nextCurrency: string) {
     setCurrency(nextCurrency);
 
-    if (!isSteamItem || !steamMarketHashName || steamRubUnitPrice == null) return;
-
-    if (nextCurrency === "RUB") {
-      setCurrentUnitPrice(String(steamRubUnitPrice));
+    if (isSteamItem && steamMarketHashName && steamRubUnitPrice != null) {
+      if (nextCurrency === "RUB") {
+        setCurrentUnitPrice(String(steamRubUnitPrice));
+        return;
+      }
+      const steamRate = ratesToRub[nextCurrency];
+      if (steamRate && steamRate > 0) {
+        setCurrentUnitPrice(String(steamRubUnitPrice / steamRate));
+      }
       return;
     }
 
-    const rateToRub = ratesToRub[nextCurrency];
-    if (rateToRub && rateToRub > 0) {
-      setCurrentUnitPrice(String(steamRubUnitPrice / rateToRub));
+    if (isCrypto && coinGeckoId && cryptoRubUnitPrice != null) {
+      if (nextCurrency === "RUB") {
+        setCurrentUnitPrice(String(cryptoRubUnitPrice));
+        return;
+      }
+      const cryptoRate = ratesToRub[nextCurrency];
+      if (cryptoRate && cryptoRate > 0) {
+        setCurrentUnitPrice(String(cryptoRubUnitPrice / cryptoRate));
+      }
     }
   }
 
@@ -305,7 +452,11 @@ export function AssetForm({
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Например: Сбербанк, Bitcoin, ОФЗ 26238"
+          placeholder={
+            isCrypto
+              ? "Например: bitcoin, sol, тон…"
+              : "Например: Сбербанк, Bitcoin, ОФЗ 26238"
+          }
           className={inputClass}
         />
         {isSteamItem && (
@@ -322,6 +473,32 @@ export function AssetForm({
                   >
                     <p className="text-sm text-white truncate">{item.name}</p>
                     <p className="text-xs text-slate-500">{item.price || "Цена недоступна"}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {isCrypto && (
+          <div className="mt-2 space-y-1">
+            {cryptoHint && <p className="text-xs text-slate-500">{cryptoHint}</p>}
+            {cryptoOptions.length > 0 && (
+              <div className="max-h-48 overflow-y-auto rounded-lg border border-[hsl(216,34%,20%)] bg-[hsl(222,47%,10%)]">
+                {cryptoOptions.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => void selectCryptoCoin(item)}
+                    className="w-full px-3 py-2 text-left hover:bg-[hsl(216,34%,16%)] border-b last:border-b-0 border-[hsl(216,34%,17%)]"
+                  >
+                    <p className="text-sm text-white truncate">
+                      {item.name}{" "}
+                      <span className="text-slate-400 font-normal">({item.symbol})</span>
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      CoinGecko: {item.id}
+                      {item.market_cap_rank != null ? ` · кап. #{item.market_cap_rank}` : ""}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -391,16 +568,23 @@ export function AssetForm({
       <div>
         <label className="block text-sm font-medium text-slate-300 mb-1.5">
           Тикер / символ{" "}
-          <span className="text-slate-500 font-normal">(необязательно)</span>
+          <span className="text-slate-500 font-normal">
+            {isCrypto ? "(из CoinGecko при выборе монеты)" : "(необязательно)"}
+          </span>
         </label>
         <input
           name="ticker"
           type="text"
           value={ticker}
           onChange={(e) => setTicker(e.target.value.toUpperCase())}
-          placeholder="Например: SBER, BTC, LKOH"
+          placeholder={isCrypto ? "BTC, ETH…" : "Например: SBER, BTC, LKOH"}
           className={inputClass}
         />
+        {isCrypto && coinGeckoId.trim().length > 0 && (
+          <p className="mt-1 text-xs text-slate-500">
+            Привязка: <span className="text-slate-400 font-mono">{coinGeckoId}</span>
+          </p>
+        )}
       </div>
 
       {/* Количество и единица */}
@@ -483,6 +667,16 @@ export function AssetForm({
               {updatingSteamPrice ? "Обновляем цену..." : "Обновить цену"}
             </button>
           )}
+          {canRefreshCryptoPrice && (
+            <button
+              type="button"
+              onClick={() => void updateCryptoPriceById(coinGeckoId.trim())}
+              disabled={updatingCryptoPrice}
+              className="mt-2 block text-xs text-amber-400 hover:text-amber-300 disabled:opacity-50 transition-colors"
+            >
+              {updatingCryptoPrice ? "Обновляем цену..." : "Обновить цену (CoinGecko)"}
+            </button>
+          )}
           {canRefreshMoexPrice && (
             <button
               type="button"
@@ -498,6 +692,7 @@ export function AssetForm({
       </div>
 
       <input name="steamMarketHashName" type="hidden" value={steamMarketHashName} />
+      <input name="coinGeckoId" type="hidden" value={coinGeckoId} />
 
       {/* Валюта */}
       <div>

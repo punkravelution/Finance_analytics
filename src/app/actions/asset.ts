@@ -79,6 +79,7 @@ function parseAssetFormData(formData: FormData) {
     assetType: formData.get("assetType")?.toString() ?? "",
     vaultId: formData.get("vaultId")?.toString() ?? "",
     ticker: formData.get("ticker")?.toString().trim() || null,
+    coinGeckoId: formData.get("coinGeckoId")?.toString().trim() || null,
     steamMarketHashName: formData.get("steamMarketHashName")?.toString() || null,
     quantity,
     unit: formData.get("unit")?.toString().trim() || "шт",

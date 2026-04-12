@@ -1,0 +1,48 @@
+/** Символы для подстановки при добавлении валюты из справочника (если нет — показываем код). */
+const SYMBOLS: Record<string, string> = {
+  RUB: "₽",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  CHF: "Fr.",
+  JPY: "¥",
+  CNY: "¥",
+  AUD: "A$",
+  CAD: "C$",
+  NZD: "NZ$",
+  SEK: "kr",
+  NOK: "kr",
+  DKK: "kr",
+  PLN: "zł",
+  CZK: "Kč",
+  HUF: "Ft",
+  TRY: "₺",
+  BGN: "лв",
+  RON: "lei",
+  UAH: "₴",
+  KZT: "₸",
+  BYN: "Br",
+  AMD: "֏",
+  GEL: "₾",
+  HKD: "HK$",
+  SGD: "S$",
+  KRW: "₩",
+  INR: "₹",
+  THB: "฿",
+  MXN: "$",
+  BRL: "R$",
+  ZAR: "R",
+  AED: "د.إ",
+  XDR: "SDR",
+  IDR: "Rp",
+  ILS: "₪",
+  TWD: "NT$",
+  PHP: "₱",
+  MYR: "RM",
+  VND: "₫",
+};
+
+export function symbolForCurrencyCode(code: string): string {
+  const c = code.trim().toUpperCase();
+  return SYMBOLS[c] ?? c;
+}

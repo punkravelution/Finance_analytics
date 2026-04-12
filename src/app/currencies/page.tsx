@@ -119,7 +119,7 @@ export default async function CurrenciesPage() {
           Валюты
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Справочник валют и ручное управление курсами
+          Справочник валют, выбор из выгрузки ЦБ РФ и ручное управление курсами
         </p>
       </div>
 

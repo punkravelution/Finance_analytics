@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { fetchWithRateLimitRetry } from "@/lib/coingeckoApi";
 
 const COINGECKO_URL =
   "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,litecoin,tether,binancecoin,solana&vs_currencies=rub,usd";
@@ -18,33 +19,6 @@ function getRatesDate(): Date {
   const date = new Date();
   date.setUTCHours(0, 0, 0, 0);
   return date;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function fetchWithRateLimitRetry(url: string): Promise<Response> {
-  const maxAttempts = 3;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const response = await fetch(url, { cache: "no-store" });
-    if (response.status !== 429) return response;
-
-    if (attempt === maxAttempts) {
-      throw new Error("CoinGecko временно ограничил запросы (HTTP 429). Попробуйте через 1-2 минуты.");
-    }
-
-    const retryAfterHeader = response.headers.get("retry-after");
-    const retryAfterSeconds = Number.parseInt(retryAfterHeader ?? "", 10);
-    const delayMs =
-      Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
-        ? retryAfterSeconds * 1000
-        : attempt * 1500;
-
-    await sleep(delayMs);
-  }
-
-  throw new Error("CoinGecko временно недоступен");
 }
 
 export async function updateCryptoRates(): Promise<number> {

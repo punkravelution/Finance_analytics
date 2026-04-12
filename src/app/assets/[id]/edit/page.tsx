@@ -61,6 +61,7 @@ export default async function EditAssetPage({ params }: Props) {
         </CardHeader>
         <CardContent>
           <AssetForm
+            key={asset.id}
             action={action}
             vaults={vaults}
             currencies={currencies}
@@ -72,6 +73,7 @@ export default async function EditAssetPage({ params }: Props) {
               assetType: asset.assetType,
               vaultId: asset.vaultId,
               ticker: asset.ticker,
+              coinGeckoId: asset.coinGeckoId,
               steamMarketHashName: asset.steamMarketHashName,
               quantity: asset.quantity,
               unit: asset.unit,

@@ -27,6 +27,10 @@ export function CurrencyEditForm({ currency }: Props) {
       <div>
         <label className="block text-sm text-slate-400 mb-1">Код</label>
         <input value={currency.code} disabled className={`${inputClass} opacity-60`} />
+        <p className="mt-1 text-[11px] text-slate-600 leading-snug">
+          Курсы к рублю с ЦБ РФ подтягиваются кнопкой «Обновить курсы ЦБ РФ», если код валюты есть в
+          ежедневной XML-выгрузке Банка России (как при добавлении из списка).
+        </p>
       </div>
 
       <div>

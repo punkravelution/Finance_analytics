@@ -16,6 +16,9 @@ export function CbrRatesUpdateForm({ lastUpdatedLabel }: Props) {
     <form action={formAction} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div className="text-sm text-slate-400">
         Последнее обновление ЦБ РФ: <span className="text-slate-300">{lastUpdatedLabel}</span>
+        <span className="block mt-1 text-slate-600">
+          Загружаются курсы всех валют из дневного XML ЦБ к рублю (не только USD/EUR).
+        </span>
       </div>
       <div className="flex flex-col items-start sm:items-end gap-1">
         <button
