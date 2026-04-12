@@ -50,7 +50,11 @@ export default async function AssetDetailPage({ params }: Props) {
   if (!asset || !asset.isActive) notFound();
 
   const cost = (asset.averageBuyPrice ?? 0) * asset.quantity;
-  const currentValue = asset.currentTotalValue ?? 0;
+  /** Если задана цена за ед., считаем стоимость из неё — совпадает с карточкой в списке и не «залипает» в ₽ при устаревшем currentTotalValue. */
+  const currentValue =
+    asset.currentUnitPrice != null
+      ? asset.currentUnitPrice * asset.quantity
+      : (asset.currentTotalValue ?? 0);
   const pnl = currentValue - cost;
   const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
 

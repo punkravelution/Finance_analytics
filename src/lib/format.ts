@@ -5,11 +5,15 @@ export function formatCurrency(
   currency = "RUB",
   compact = false
 ): string {
+  const cur =
+    typeof currency === "string" && /^[A-Za-z]{3}$/.test(currency.trim())
+      ? currency.trim().toUpperCase()
+      : "RUB";
   const options: Intl.NumberFormatOptions = {
     style: "currency",
-    currency,
+    currency: cur,
     minimumFractionDigits: 0,
-    maximumFractionDigits: currency === "RUB" ? 0 : 2,
+    maximumFractionDigits: cur === "RUB" ? 0 : 2,
     ...(compact && { notation: "compact", compactDisplay: "short" }),
   };
 

@@ -16,7 +16,7 @@ import { UpdateSteamPricesForm } from "@/components/assets/UpdateSteamPricesForm
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
 import { getVaultBalance, BALANCE_SOURCE_LABELS } from "@/lib/vaultBalance";
-import { getExchangeRates } from "@/lib/currency";
+import { convertAmount, getExchangeRates } from "@/lib/currency";
 import {
   VAULT_TYPE_LABELS,
   LIQUIDITY_LABELS,
@@ -114,10 +114,13 @@ export default async function VaultDetailPage({ params }: Props) {
     .sort((a, b) => b.date.getTime() - a.date.getTime())
     .slice(0, 10);
 
-  const totalAssetValue = vault.assets.reduce(
-    (s, a) => s + (a.currentTotalValue ?? 0),
-    0
-  );
+  const totalAssetValue = vault.assets.reduce((s, a) => {
+    const native =
+      a.currentUnitPrice != null
+        ? a.currentUnitPrice * a.quantity
+        : (a.currentTotalValue ?? 0);
+    return s + convertAmount(native, a.currency, vault.currency, rates);
+  }, 0);
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -267,9 +270,12 @@ export default async function VaultDetailPage({ params }: Props) {
             ) : (
               <div className="space-y-2">
                 {vault.assets.map((asset) => {
-                  const pnl =
-                    (asset.currentTotalValue ?? 0) -
-                    (asset.averageBuyPrice ?? 0) * asset.quantity;
+                  const currentNative =
+                    asset.currentUnitPrice != null
+                      ? asset.currentUnitPrice * asset.quantity
+                      : (asset.currentTotalValue ?? 0);
+                  const costNative = (asset.averageBuyPrice ?? 0) * asset.quantity;
+                  const pnl = currentNative - costNative;
                   return (
                     <Link
                       key={asset.id}
@@ -293,10 +299,7 @@ export default async function VaultDetailPage({ params }: Props) {
                       </div>
                       <div className="text-right flex-shrink-0">
                         <p className="text-sm font-medium text-white tabular-nums">
-                          {formatCurrency(
-                            asset.currentTotalValue ?? 0,
-                            asset.currency
-                          )}
+                          {formatCurrency(currentNative, asset.currency)}
                         </p>
                         {pnl !== 0 && (
                           <p

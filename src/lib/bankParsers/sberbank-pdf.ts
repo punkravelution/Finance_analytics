@@ -33,7 +33,8 @@ let cachedPdfParse: PdfParseFn | null = null;
 function getPdfParse(): PdfParseFn {
   if (cachedPdfParse) return cachedPdfParse;
   const require = createRequire(fileURLToPath(import.meta.url));
-  const fn = require("./load-pdf-parse.cjs") as unknown;
+  // Пакет из serverExternalPackages; относительный .cjs рядом с чанком на проде не кладётся — грузим npm-модуль напрямую.
+  const fn = require("pdf-parse") as unknown;
   if (typeof fn !== "function") {
     throw new SberbankPdfParseError("Внутренняя ошибка: модуль pdf-parse загрузился некорректно.");
   }

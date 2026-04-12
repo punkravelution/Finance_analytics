@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { convertAmount, getBaseCurrency, getExchangeRates } from "@/lib/currency";
 import { formatCurrency, formatNumber, formatDate } from "@/lib/format";
 import { ASSET_TYPE_LABELS, type AssetType } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,11 +20,20 @@ async function getAssets() {
 }
 
 export default async function AssetsPage() {
-  const assets = await getAssets();
+  const [assets, baseCurrency, rates] = await Promise.all([
+    getAssets(),
+    getBaseCurrency(),
+    getExchangeRates(),
+  ]);
 
-  const totalValue = assets.reduce((sum, a) => sum + (a.currentTotalValue ?? 0), 0);
+  const totalValue = assets.reduce(
+    (sum, a) => sum + convertAmount(a.currentTotalValue ?? 0, a.currency, baseCurrency, rates),
+    0
+  );
   const totalCost = assets.reduce(
-    (sum, a) => sum + (a.averageBuyPrice ?? 0) * a.quantity,
+    (sum, a) =>
+      sum +
+      convertAmount((a.averageBuyPrice ?? 0) * a.quantity, a.currency, baseCurrency, rates),
     0
   );
   const totalPnl = totalValue - totalCost;
@@ -47,7 +57,8 @@ export default async function AssetsPage() {
             Активы
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            {assets.length} активов · Стоимость: {formatCurrency(totalValue)}
+            {assets.length} активов · Итого в {baseCurrency}:{" "}
+            {formatCurrency(totalValue, baseCurrency)}
           </p>
         </div>
         <Link
@@ -59,15 +70,23 @@ export default async function AssetsPage() {
         </Link>
       </div>
 
-      {/* Сводка */}
+      {/* Сводка — суммы в базовой валюте (настройки), т.к. активы могут быть в USD, EUR и т.д. */}
+      <p className="text-xs text-slate-600 -mt-2 mb-2">
+        Сводка пересчитана в {baseCurrency} по курсам из приложения (ЦБ / вручную). Отдельные
+        строки ниже по-прежнему в валюте актива.
+      </p>
       <div className="grid grid-cols-3 gap-4 mb-7">
         <div className="bg-[hsl(222,47%,8%)] border border-[hsl(216,34%,17%)] rounded-xl p-4">
           <p className="text-xs text-slate-500 mb-1">Текущая стоимость</p>
-          <p className="text-xl font-bold tabular-nums">{formatCurrency(totalValue)}</p>
+          <p className="text-xl font-bold tabular-nums">
+            {formatCurrency(totalValue, baseCurrency)}
+          </p>
         </div>
         <div className="bg-[hsl(222,47%,8%)] border border-[hsl(216,34%,17%)] rounded-xl p-4">
           <p className="text-xs text-slate-500 mb-1">Вложено (по средней)</p>
-          <p className="text-xl font-bold tabular-nums">{formatCurrency(totalCost)}</p>
+          <p className="text-xl font-bold tabular-nums">
+            {formatCurrency(totalCost, baseCurrency)}
+          </p>
         </div>
         <div className="bg-[hsl(222,47%,8%)] border border-[hsl(216,34%,17%)] rounded-xl p-4">
           <p className="text-xs text-slate-500 mb-1">Прибыль / убыток</p>
@@ -77,7 +96,7 @@ export default async function AssetsPage() {
             }`}
           >
             {totalPnl >= 0 ? "+" : ""}
-            {formatCurrency(totalPnl)}
+            {formatCurrency(totalPnl, baseCurrency)}
           </p>
           <p
             className={`text-xs mt-0.5 ${
@@ -94,8 +113,8 @@ export default async function AssetsPage() {
       <div className="space-y-6">
         {Object.entries(byVault).map(([vaultId, vaultAssets]) => {
           const vault = vaultAssets[0].vault;
-          const vaultTotal = vaultAssets.reduce(
-            (s, a) => s + (a.currentTotalValue ?? 0),
+          const vaultTotalBase = vaultAssets.reduce(
+            (s, a) => s + convertAmount(a.currentTotalValue ?? 0, a.currency, baseCurrency, rates),
             0
           );
 
@@ -107,7 +126,7 @@ export default async function AssetsPage() {
                   <h2 className="text-sm font-semibold text-slate-300">{vault.name}</h2>
                   <span className="text-xs text-slate-600">·</span>
                   <span className="text-sm text-slate-500 tabular-nums">
-                    {formatCurrency(vaultTotal, vault.currency)}
+                    {formatCurrency(vaultTotalBase, baseCurrency)}
                   </span>
                 </div>
                 {vault.type === "steam" && <UpdateSteamPricesForm />}
@@ -117,10 +136,20 @@ export default async function AssetsPage() {
               <div className="space-y-2">
                 {vaultAssets.map((asset) => {
                   const cost = (asset.averageBuyPrice ?? 0) * asset.quantity;
-                  const currentValue = asset.currentTotalValue ?? 0;
+                  const currentValue =
+                    asset.currentUnitPrice != null
+                      ? asset.currentUnitPrice * asset.quantity
+                      : (asset.currentTotalValue ?? 0);
                   const pnl = currentValue - cost;
                   const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
-                  const share = vaultTotal > 0 ? (currentValue / vaultTotal) * 100 : 0;
+                  const currentValueBase = convertAmount(
+                    currentValue,
+                    asset.currency,
+                    baseCurrency,
+                    rates
+                  );
+                  const share =
+                    vaultTotalBase > 0 ? (currentValueBase / vaultTotalBase) * 100 : 0;
 
                   return (
                     <Link key={asset.id} href={`/assets/${asset.id}`} className="block">
@@ -187,7 +216,7 @@ export default async function AssetsPage() {
                           {/* Стоимость */}
                           <div className="text-right flex-shrink-0">
                             <p className="font-semibold tabular-nums text-white">
-                              {formatCurrency(asset.currentTotalValue ?? 0, asset.currency)}
+                              {formatCurrency(currentValue, asset.currency)}
                             </p>
                             {asset.lastUpdatedAt && (
                               <p className="text-[10px] text-slate-600 mt-0.5">
