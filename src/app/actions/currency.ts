@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { updateExchangeRates } from "@/lib/fetchRates";
 import { updateCryptoRates } from "@/lib/fetchCryptoRates";
+import { coinGeckoSimplePriceRubUsd, isValidCoinGeckoId } from "@/lib/coingeckoApi";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -16,6 +17,7 @@ export interface CurrencyActionState {
     rate?: string;
     fromCurrency?: string;
     toCurrency?: string;
+    coinGeckoId?: string;
     general?: string;
   };
 }
@@ -33,6 +35,13 @@ function getErrorMessage(error: unknown, fallback: string): string {
 
 function parseCode(input: FormDataEntryValue | null): string {
   return input?.toString().trim().toUpperCase() ?? "";
+}
+
+/** Код валюты для пар курса: фиат ISO 3 или крипто 2–10 символов A–Z/0–9 */
+function parseCurrencyCodeForPair(input: FormDataEntryValue | null): string {
+  const s = input?.toString().trim().toUpperCase() ?? "";
+  if (!/^[A-Z0-9]{2,10}$/.test(s)) return "";
+  return s;
 }
 
 export async function createCurrency(
@@ -62,6 +71,103 @@ export async function createCurrency(
 
   revalidatePath("/currencies");
   revalidatePath("/settings");
+  redirect("/currencies");
+}
+
+/** Криптовалюта в справочнике: курс к ₽/$ подтягивается с CoinGecko по id монеты. */
+export async function createCryptoCurrency(
+  _prev: CurrencyActionState,
+  formData: FormData
+): Promise<CurrencyActionState> {
+  const codeRaw = formData.get("code")?.toString().trim().toUpperCase() ?? "";
+  const name = formData.get("name")?.toString().trim() ?? "";
+  const symbol = formData.get("symbol")?.toString().trim() ?? "";
+  const sortOrderStr = formData.get("sortOrder")?.toString() ?? "0";
+  const sortOrder = parseInt(sortOrderStr, 10);
+  const coinGeckoId = formData.get("coinGeckoId")?.toString().trim().toLowerCase() ?? "";
+
+  const errors: NonNullable<CurrencyActionState["errors"]> = {};
+  if (!/^[A-Z0-9]{2,10}$/.test(codeRaw)) {
+    errors.code = "Код: 2–10 латинских букв или цифр (например BTC, USDT)";
+  }
+  if (!name) errors.name = "Укажите название";
+  if (!symbol) errors.symbol = "Укажите символ";
+  if (Number.isNaN(sortOrder)) errors.sortOrder = "Некорректный порядок";
+  if (!isValidCoinGeckoId(coinGeckoId)) {
+    errors.coinGeckoId = "Некорректный id монеты CoinGecko";
+  }
+  if (Object.keys(errors).length > 0) return { errors };
+
+  const [dupCode, dupCg] = await Promise.all([
+    prisma.currency.findUnique({ where: { code: codeRaw }, select: { code: true } }),
+    prisma.currency.findUnique({ where: { coinGeckoId }, select: { code: true } }),
+  ]);
+  if (dupCode) {
+    return { errors: { code: "Валюта с таким кодом уже есть" } };
+  }
+  if (dupCg) {
+    return { errors: { coinGeckoId: "Эта монета CoinGecko уже добавлена" } };
+  }
+
+  const quotes = await coinGeckoSimplePriceRubUsd(coinGeckoId);
+  if (quotes.rub == null && quotes.usd == null) {
+    return {
+      errors: {
+        general: "CoinGecko не вернул курс для выбранной монеты. Попробуйте другой id или позже.",
+      },
+    };
+  }
+
+  const date = new Date();
+  date.setUTCHours(0, 0, 0, 0);
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.currency.create({
+        data: {
+          code: codeRaw,
+          name,
+          symbol,
+          sortOrder,
+          isActive: true,
+          coinGeckoId,
+        },
+      });
+
+      const saveRate = async (from: string, to: string, rate: number) => {
+        const existing = await tx.exchangeRate.findFirst({
+          where: { fromCurrency: from, toCurrency: to, date },
+          select: { id: true },
+        });
+        if (existing) {
+          await tx.exchangeRate.update({
+            where: { id: existing.id },
+            data: { rate, source: "coingecko" },
+          });
+        } else {
+          await tx.exchangeRate.create({
+            data: { fromCurrency: from, toCurrency: to, rate, date, source: "coingecko" },
+          });
+        }
+      };
+
+      if (quotes.rub != null) {
+        await saveRate(codeRaw, "RUB", quotes.rub);
+        await saveRate("RUB", codeRaw, 1 / quotes.rub);
+      }
+      if (quotes.usd != null) {
+        await saveRate(codeRaw, "USD", quotes.usd);
+        await saveRate("USD", codeRaw, 1 / quotes.usd);
+      }
+    });
+  } catch {
+    return { errors: { general: "Не удалось сохранить валюту" } };
+  }
+
+  revalidatePath("/currencies");
+  revalidatePath("/settings");
+  revalidatePath("/");
+  revalidatePath("/analytics");
   redirect("/currencies");
 }
 
@@ -100,16 +206,16 @@ export async function upsertExchangeRateAction(
   _prev: CurrencyActionState,
   formData: FormData
 ): Promise<CurrencyActionState> {
-  const fromCurrency = parseCode(formData.get("fromCurrency"));
-  const toCurrency = parseCode(formData.get("toCurrency"));
+  const fromCurrency = parseCurrencyCodeForPair(formData.get("fromCurrency"));
+  const toCurrency = parseCurrencyCodeForPair(formData.get("toCurrency"));
   const rateStr = formData.get("rate")?.toString() ?? "";
   const rate = parseFloat(rateStr);
 
   const errors: NonNullable<CurrencyActionState["errors"]> = {};
-  if (!fromCurrency || fromCurrency.length !== 3) {
+  if (!fromCurrency) {
     errors.fromCurrency = "Выберите валюту источника";
   }
-  if (!toCurrency || toCurrency.length !== 3) {
+  if (!toCurrency) {
     errors.toCurrency = "Выберите валюту назначения";
   }
   if (fromCurrency && toCurrency && fromCurrency === toCurrency) {

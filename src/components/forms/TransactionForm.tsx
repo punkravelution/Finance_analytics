@@ -28,6 +28,8 @@ interface TransactionFormProps {
   ) => Promise<TransactionActionState>;
   vaults: VaultOption[];
   categories: CategoryOption[];
+  /** Имена из справочника — клик добавляет тег к операции */
+  tagPresets?: string[];
   defaultValues?: {
     type?: string;
     amount?: number;
@@ -50,6 +52,7 @@ export function TransactionForm({
   action,
   vaults,
   categories,
+  tagPresets = [],
   defaultValues = {},
   cancelHref,
   submitLabel = "Сохранить",
@@ -287,9 +290,42 @@ export function TransactionForm({
 
       {/* Теги */}
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-1.5">
-          Теги <span className="text-slate-500 font-normal">(через запятую или Enter)</span>
-        </label>
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1.5">
+          <label className="block text-sm font-medium text-slate-300">
+            Теги <span className="text-slate-500 font-normal">(через запятую или Enter)</span>
+          </label>
+          <Link
+            href="/settings/categories-tags"
+            className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            Справочник категорий и тегов
+          </Link>
+        </div>
+        {tagPresets.length > 0 && (
+          <div className="mb-2">
+            <p className="text-[11px] text-slate-500 mb-1.5">Быстро из справочника:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {tagPresets.map((t) => {
+                const active = tagList.includes(t);
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    disabled={active}
+                    onClick={() => addTagsFromString(t)}
+                    className={`px-2 py-0.5 rounded-md text-xs border transition-colors ${
+                      active
+                        ? "border-slate-600 text-slate-600 cursor-default"
+                        : "border-slate-600 text-slate-300 hover:border-blue-500/50 hover:text-blue-300"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div className="flex flex-wrap gap-1.5 mb-2 min-h-[1.75rem]">
           {tagList.map((tag) => (
             <span

@@ -7,7 +7,7 @@ import { createTransaction } from "@/app/actions/transaction";
 export const dynamic = "force-dynamic";
 
 export default async function NewTransactionPage() {
-  const [vaults, categories] = await Promise.all([
+  const [vaults, categories, tagPresetRows] = await Promise.all([
     prisma.vault.findMany({
       where: { isActive: true },
       select: { id: true, name: true, icon: true, balanceSource: true },
@@ -17,7 +17,9 @@ export default async function NewTransactionPage() {
       select: { id: true, name: true, type: true, color: true },
       orderBy: { name: "asc" },
     }),
+    prisma.tagPreset.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
   ]);
+  const tagPresets = tagPresetRows.map((r) => r.name);
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -37,6 +39,7 @@ export default async function NewTransactionPage() {
             action={createTransaction}
             vaults={vaults}
             categories={categories}
+            tagPresets={tagPresets}
             cancelHref="/transactions"
             submitLabel="Добавить операцию"
           />

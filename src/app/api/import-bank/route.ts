@@ -7,6 +7,19 @@ import { parseTbankCsv } from "@/lib/bankParsers/tbank";
 import { createImportedCategoryResolver } from "@/lib/bankParsers/categoryMapper";
 import type { ParsedTransaction } from "@/lib/bankParsers/types";
 import type { Prisma } from "@/generated/prisma/client";
+import {
+  matchLiability,
+  matchPlannedExpense,
+  matchRecurringIncome,
+  matchSubscription,
+} from "@/lib/recurringMatcher";
+import { applyLiabilityPayment } from "@/lib/liabilityBalance";
+import {
+  mergeLiabilityLinkTag,
+  mergePlannedExpenseLinkTag,
+  mergeRecurringIncomeLinkTag,
+  mergeSubscriptionLinkTag,
+} from "@/lib/transactionTags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -118,6 +131,8 @@ export type ImportBankResponseBody = {
   skipped: number;
   duplicates: number;
   errors: string[];
+  /** Автопривязка к RecurringIncome / Subscription при импорте */
+  autoLinked: number;
 };
 
 function normalizeNote(note: string): string {
@@ -232,7 +247,7 @@ export async function POST(
   request: NextRequest
 ): Promise<NextResponse<ImportBankResponseBody | ImportBankOverlapBody>> {
   const fail = (status: number, errors: string[]) =>
-    NextResponse.json({ imported: 0, skipped: 0, duplicates: 0, errors }, { status });
+    NextResponse.json({ imported: 0, skipped: 0, duplicates: 0, errors, autoLinked: 0 }, { status });
 
   try {
     const formData = await request.formData();
@@ -346,8 +361,18 @@ export async function POST(
 
     const resolveCategory = await createImportedCategoryResolver(prisma);
 
+    const [recurringIncomes, subscriptions, unpaidPlanned, activeLiabilities] = await Promise.all([
+      prisma.recurringIncome.findMany({ where: { isActive: true } }),
+      prisma.subscription.findMany({ where: { isActive: true } }),
+      prisma.plannedExpense.findMany({ where: { isPaid: false } }),
+      prisma.liability.findMany({
+        where: { isActive: true, currentBalance: { gt: 0 } },
+      }),
+    ]);
+
     let imported = 0;
     let duplicates = 0;
+    let autoLinked = 0;
     const errors = [...parsed.errors];
 
     /** Импорт может быть длинным (много строк × проверка дубликатов + create); дефолт Prisma 5s не хватает. */
@@ -383,9 +408,108 @@ export async function POST(
           const resolvedType = resolveImportType(row, i, classifications);
           const data = buildCreateInput(resolvedType, row, vaultId, categoryId, sessionId);
 
-          await tx.transaction.create({ data });
+          const created = await tx.transaction.create({ data });
           await applyEffectsForCreated(tx, data);
           imported += 1;
+
+          if (created.type === "income" && created.toVaultId) {
+            const m = matchRecurringIncome(
+              {
+                type: created.type,
+                amount: created.amount,
+                date: created.date,
+                note: created.note ?? "",
+                toVaultId: created.toVaultId,
+              },
+              recurringIncomes
+            );
+            if (m) {
+              await tx.transaction.update({
+                where: { id: created.id },
+                data: {
+                  recurringIncomeId: m.id,
+                  tags: mergeRecurringIncomeLinkTag(created.tags),
+                },
+              });
+              autoLinked += 1;
+            }
+          } else if (created.type === "expense" && created.fromVaultId) {
+            const mSub = matchSubscription(
+              {
+                type: created.type,
+                amount: created.amount,
+                date: created.date,
+                note: created.note ?? "",
+                fromVaultId: created.fromVaultId,
+              },
+              subscriptions
+            );
+            if (mSub) {
+              await tx.transaction.update({
+                where: { id: created.id },
+                data: {
+                  subscriptionId: mSub.id,
+                  tags: mergeSubscriptionLinkTag(created.tags),
+                },
+              });
+              autoLinked += 1;
+            } else {
+              const mPlan = matchPlannedExpense(
+                {
+                  type: created.type,
+                  amount: created.amount,
+                  date: created.date,
+                  note: created.note ?? "",
+                  currency: created.currency,
+                  fromVaultId: created.fromVaultId,
+                },
+                unpaidPlanned
+              );
+              if (mPlan) {
+                await tx.transaction.update({
+                  where: { id: created.id },
+                  data: {
+                    plannedExpenseId: mPlan.id,
+                    tags: mergePlannedExpenseLinkTag(created.tags),
+                  },
+                });
+                await tx.plannedExpense.update({
+                  where: { id: mPlan.id },
+                  data: { isPaid: true },
+                });
+                const stale = unpaidPlanned.find((p) => p.id === mPlan.id);
+                if (stale) stale.isPaid = true;
+                autoLinked += 1;
+              } else {
+                const mLiab = matchLiability(
+                  {
+                    type: created.type,
+                    amount: created.amount,
+                    date: created.date,
+                    note: created.note ?? "",
+                    currency: created.currency,
+                    fromVaultId: created.fromVaultId,
+                  },
+                  activeLiabilities
+                );
+                if (mLiab) {
+                  await tx.transaction.update({
+                    where: { id: created.id },
+                    data: {
+                      liabilityId: mLiab.id,
+                      tags: mergeLiabilityLinkTag(created.tags),
+                    },
+                  });
+                  await applyLiabilityPayment(tx, mLiab.id, created.amount, created.currency);
+                  const staleL = activeLiabilities.find((l) => l.id === mLiab.id);
+                  if (staleL) {
+                    staleL.currentBalance = Math.max(0, staleL.currentBalance - created.amount);
+                  }
+                  autoLinked += 1;
+                }
+              }
+            }
+          }
         }
 
         await tx.importSession.update({
@@ -403,12 +527,15 @@ export async function POST(
     revalidatePath("/vaults");
     revalidatePath("/");
     revalidatePath("/import");
+    revalidatePath("/goals");
+    revalidatePath("/liabilities");
 
     return NextResponse.json({
       imported,
       skipped,
       duplicates,
       errors: errors.slice(0, 50),
+      autoLinked,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Сбой при импорте.";

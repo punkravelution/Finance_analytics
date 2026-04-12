@@ -127,6 +127,10 @@ async function getTransactionTotals90d(
 
 /** Текстовый снимок для подстановки в system prompt (русский). */
 export async function buildFinancialContextForAi(): Promise<string> {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
   const [baseCurrency, rates] = await Promise.all([getBaseCurrency(), getExchangeRates()]);
 
   const [
@@ -141,6 +145,9 @@ export async function buildFinancialContextForAi(): Promise<string> {
     recurringTotals,
     topExpense90,
     tx90,
+    linkedIncomeMonth,
+    linkedSubMonth,
+    linkedPlannedMonth,
   ] = await Promise.all([
     getVaultSummaries(),
     getDashboardStats(),
@@ -169,11 +176,34 @@ export async function buildFinancialContextForAi(): Promise<string> {
     getTotalMonthlyIncome(),
     getTopExpenseCategories(90, 5, baseCurrency, rates),
     getTransactionTotals90d(baseCurrency, rates),
+    prisma.transaction.findMany({
+      where: {
+        type: "income",
+        recurringIncomeId: { not: null },
+        date: { gte: monthStart, lte: monthEnd },
+      },
+      select: { recurringIncomeId: true },
+    }),
+    prisma.transaction.findMany({
+      where: {
+        type: "expense",
+        subscriptionId: { not: null },
+        date: { gte: monthStart, lte: monthEnd },
+      },
+      select: { subscriptionId: true },
+    }),
+    prisma.transaction.findMany({
+      where: {
+        type: "expense",
+        plannedExpenseId: { not: null },
+        date: { gte: monthStart, lte: monthEnd },
+      },
+      select: { plannedExpenseId: true },
+    }),
   ]);
 
   const lines: string[] = [];
 
-  const now = new Date();
   const DAY_MS = 24 * 60 * 60 * 1000;
   function startOfLocalDay(d: Date): Date {
     return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -262,6 +292,37 @@ export async function buildFinancialContextForAi(): Promise<string> {
   );
   lines.push("");
 
+  const distinctRecurringThisMonth = new Set(
+    linkedIncomeMonth
+      .map((t) => t.recurringIncomeId)
+      .filter((id): id is string => id != null)
+  );
+  const distinctSubThisMonth = new Set(
+    linkedSubMonth.map((t) => t.subscriptionId).filter((id): id is string => id != null)
+  );
+  lines.push(
+    "Факт по транзакциям в текущем месяце (привязка recurringIncomeId / subscriptionId):"
+  );
+  for (const r of recurringIncomes) {
+    const received = distinctRecurringThisMonth.has(r.id);
+    lines.push(
+      `  — «${r.name}»: есть транзакция-доход с привязкой к этой записи в текущем месяце: ${received ? "да" : "нет"}`
+    );
+  }
+  for (const s of subscriptions) {
+    const paid = distinctSubThisMonth.has(s.id);
+    lines.push(
+      `  — подписка «${s.name}»: есть транзакция-расход с привязкой к этой записи в текущем месяце: ${paid ? "да" : "нет"}`
+    );
+  }
+  lines.push(
+    `Итог: ожидается доходов по справочнику (активные RecurringIncome): ${recurringIncomes.length}, подтверждено транзакциями с привязкой в этом месяце (уникальных записей): ${distinctRecurringThisMonth.size}.`
+  );
+  lines.push(
+    `Итог: ожидается подписок по справочнику (активные Subscription): ${subscriptions.length}, подтверждено транзакциями с привязкой в этом месяце (уникальных записей): ${distinctSubThisMonth.size}.`
+  );
+  lines.push("");
+
   // ─── C) Обязательства ───────────────────────────────────────────────────────
   lines.push("=== C) ОБЯЗАТЕЛЬСТВА (долги и кредиты) ===");
   let totalDebtBase = 0;
@@ -335,7 +396,12 @@ export async function buildFinancialContextForAi(): Promise<string> {
   const overdue: typeof plannedUnpaid = [];
   const within30: typeof plannedUnpaid = [];
   const later: typeof plannedUnpaid = [];
+  const noSpecificDate: typeof plannedUnpaid = [];
   for (const p of plannedUnpaid) {
+    if (p.dueDate == null) {
+      noSpecificDate.push(p);
+      continue;
+    }
     const d = daysUntilDue(p.dueDate);
     if (d < 0) overdue.push(p);
     else if (d <= 30) within30.push(p);
@@ -344,6 +410,7 @@ export async function buildFinancialContextForAi(): Promise<string> {
   if (overdue.length > 0) {
     lines.push("ПРОСРОЧЕНО:");
     for (const p of overdue) {
+      if (p.dueDate == null) continue;
       const d = daysUntilDue(p.dueDate);
       lines.push(
         `  — «${p.name}»: ${formatCurrency(p.amount, p.currency)}, было к оплате ${formatDate(p.dueDate)} (${d} дн. от срока)`
@@ -355,6 +422,7 @@ export async function buildFinancialContextForAi(): Promise<string> {
   if (within30.length > 0) {
     lines.push("В ближайшие 30 дней:");
     for (const p of within30) {
+      if (p.dueDate == null) continue;
       const d = daysUntilDue(p.dueDate);
       lines.push(
         `  — «${p.name}»: ${formatCurrency(p.amount, p.currency)}, срок ${formatDate(p.dueDate)} (через ${d} дн.)`
@@ -366,6 +434,7 @@ export async function buildFinancialContextForAi(): Promise<string> {
   if (later.length > 0) {
     lines.push("Далее по сроку (после 30 дней):");
     for (const p of later.slice(0, 15)) {
+      if (p.dueDate == null) continue;
       const d = daysUntilDue(p.dueDate);
       lines.push(
         `  — «${p.name}»: ${formatCurrency(p.amount, p.currency)}, срок ${formatDate(p.dueDate)} (через ${d} дн.)`
@@ -375,6 +444,38 @@ export async function buildFinancialContextForAi(): Promise<string> {
       lines.push(`  … и ещё ${later.length - 15} записей.`);
     }
   }
+  if (noSpecificDate.length > 0) {
+    lines.push("Без конкретной даты (срок не задан):");
+    for (const p of noSpecificDate) {
+      lines.push(`  — «${p.name}»: ${formatCurrency(p.amount, p.currency)}`);
+    }
+  }
+  lines.push("");
+
+  const distinctPlannedPaidThisMonth = new Set(
+    linkedPlannedMonth
+      .map((t) => t.plannedExpenseId)
+      .filter((id): id is string => id != null)
+  );
+  lines.push(
+    "Сверка неоплаченных запланированных платежей с расходами в текущем месяце (привязка plannedExpenseId):"
+  );
+  let plannedWithTxThisMonth = 0;
+  for (const p of plannedUnpaid) {
+    const linked = distinctPlannedPaidThisMonth.has(p.id);
+    if (linked) plannedWithTxThisMonth += 1;
+    const duePhrase =
+      p.dueDate != null ? `к оплате ${formatDate(p.dueDate)}` : "без даты";
+    lines.push(
+      `  — «${p.name}» (${duePhrase}): есть расход с привязкой в этом месяце: ${linked ? "да" : "нет"}`
+    );
+  }
+  if (plannedUnpaid.length === 0) {
+    lines.push("  (неоплаченных запланированных платежей нет)");
+  }
+  lines.push(
+    `Итог по неоплаченным планам: записей ${plannedUnpaid.length}, из них с подтверждающей транзакцией в текущем месяце: ${plannedWithTxThisMonth}.`
+  );
   lines.push("");
 
   // ─── F) Активы ──────────────────────────────────────────────────────────────

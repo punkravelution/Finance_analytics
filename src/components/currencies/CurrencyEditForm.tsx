@@ -10,6 +10,7 @@ interface Props {
     symbol: string;
     isActive: boolean;
     sortOrder: number;
+    coinGeckoId: string | null;
   };
 }
 
@@ -28,8 +29,18 @@ export function CurrencyEditForm({ currency }: Props) {
         <label className="block text-sm text-slate-400 mb-1">Код</label>
         <input value={currency.code} disabled className={`${inputClass} opacity-60`} />
         <p className="mt-1 text-[11px] text-slate-600 leading-snug">
-          Курсы к рублю с ЦБ РФ подтягиваются кнопкой «Обновить курсы ЦБ РФ», если код валюты есть в
-          ежедневной XML-выгрузке Банка России (как при добавлении из списка).
+          {currency.coinGeckoId ? (
+            <>
+              Курсы к рублю и доллару подтягиваются с CoinGecko (id:{" "}
+              <span className="font-mono text-slate-400">{currency.coinGeckoId}</span>) кнопкой
+              «Обновить курсы CoinGecko» на странице валют.
+            </>
+          ) : (
+            <>
+              Курсы к рублю с ЦБ РФ подтягиваются кнопкой «Обновить курсы ЦБ РФ», если код валюты есть в
+              ежедневной XML-выгрузке Банка России (как при добавлении из списка).
+            </>
+          )}
         </p>
       </div>
 

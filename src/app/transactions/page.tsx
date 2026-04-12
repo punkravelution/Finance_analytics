@@ -5,6 +5,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeftRight, Plus } from "lucide-react";
 import { TransactionListRow, type TransactionListRowDto } from "@/components/transactions/TransactionListRow";
 import type { CategoryOptionDto } from "@/components/transactions/TransactionCategoryQuickPick";
+import type {
+  RecurringOptionDto,
+  SubscriptionOptionDto,
+} from "@/components/transactions/RecurringLinkButton";
+import type { PlannedExpenseOptionDto } from "@/components/transactions/PlannedExpenseLinkButton";
+import type { LiabilityOptionDto } from "@/components/transactions/LiabilityLinkButton";
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +20,181 @@ async function getTransactions() {
       category: true,
       fromVault: true,
       toVault: true,
+      recurringIncome: { select: { id: true, name: true } },
+      subscription: { select: { id: true, name: true } },
+      plannedExpense: { select: { id: true, name: true } },
+      liability: { select: { id: true, name: true } },
     },
     orderBy: { date: "desc" },
     take: 100,
   });
+}
+
+type RecurringRow = {
+  id: string;
+  name: string;
+  amount: number;
+  currency: string;
+  billingPeriod: string;
+  nextIncomeDate: Date;
+  vaultId: string;
+};
+
+type SubscriptionRow = {
+  id: string;
+  name: string;
+  amount: number;
+  currency: string;
+  billingPeriod: string;
+  nextChargeDate: Date;
+  vaultId: string;
+};
+
+type PlannedRow = {
+  id: string;
+  name: string;
+  amount: number;
+  currency: string;
+  dueDate: Date | null;
+  vaultId: string | null;
+};
+
+type LiabilityLinkRow = {
+  id: string;
+  name: string;
+  currentBalance: number;
+  currency: string;
+  minimumPayment: number | null;
+  nextPaymentDate: Date | null;
+};
+
+async function getActiveRecurringForLinking(): Promise<RecurringRow[]> {
+  return prisma.recurringIncome.findMany({
+    where: { isActive: true },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      amount: true,
+      currency: true,
+      billingPeriod: true,
+      nextIncomeDate: true,
+      vaultId: true,
+    },
+  });
+}
+
+async function getActiveSubscriptionsForLinking(): Promise<SubscriptionRow[]> {
+  return prisma.subscription.findMany({
+    where: { isActive: true },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      amount: true,
+      currency: true,
+      billingPeriod: true,
+      nextChargeDate: true,
+      vaultId: true,
+    },
+  });
+}
+
+async function getUnpaidPlannedForLinking(): Promise<PlannedRow[]> {
+  return prisma.plannedExpense.findMany({
+    where: { isPaid: false },
+    orderBy: { dueDate: "asc" },
+    select: {
+      id: true,
+      name: true,
+      amount: true,
+      currency: true,
+      dueDate: true,
+      vaultId: true,
+    },
+  });
+}
+
+async function getLiabilitiesForDebtLinking(): Promise<LiabilityLinkRow[]> {
+  return prisma.liability.findMany({
+    where: { isActive: true, currentBalance: { gt: 0 } },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      currentBalance: true,
+      currency: true,
+      minimumPayment: true,
+      nextPaymentDate: true,
+    },
+  });
+}
+
+function recurringOptionsForVault(
+  all: RecurringRow[],
+  vaultId: string | null
+): RecurringOptionDto[] {
+  if (!vaultId) return [];
+  return all
+    .filter((r) => r.vaultId === vaultId)
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      amount: r.amount,
+      currency: r.currency,
+      billingPeriod: r.billingPeriod,
+      nextIncomeDate: r.nextIncomeDate,
+    }));
+}
+
+function subscriptionOptionsForVault(
+  all: SubscriptionRow[],
+  vaultId: string | null
+): SubscriptionOptionDto[] {
+  if (!vaultId) return [];
+  return all
+    .filter((s) => s.vaultId === vaultId)
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      amount: s.amount,
+      currency: s.currency,
+      billingPeriod: s.billingPeriod,
+      nextChargeDate: s.nextChargeDate,
+    }));
+}
+
+function plannedOptionsForVault(
+  all: PlannedRow[],
+  fromVaultId: string | null
+): PlannedExpenseOptionDto[] {
+  if (!fromVaultId) return [];
+  return all
+    .filter((p) => p.vaultId == null || p.vaultId === fromVaultId)
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      amount: p.amount,
+      currency: p.currency,
+      dueDate: p.dueDate,
+    }));
+}
+
+function liabilityOptionsForCurrency(
+  all: LiabilityLinkRow[],
+  txCurrency: string
+): LiabilityOptionDto[] {
+  const cur = txCurrency.trim().toUpperCase() || "RUB";
+  return all
+    .filter((l) => l.currency.trim().toUpperCase() === cur)
+    .map((l) => ({
+      id: l.id,
+      name: l.name,
+      currentBalance: l.currentBalance,
+      currency: l.currency,
+      minimumPayment: l.minimumPayment,
+      nextPaymentDate: l.nextPaymentDate,
+    }));
 }
 
 async function getCategories(): Promise<CategoryOptionDto[]> {
@@ -68,15 +245,24 @@ function toRowDto(tx: Awaited<ReturnType<typeof getTransactions>>[number]): Tran
       : null,
     fromVault: tx.fromVault ? { id: tx.fromVault.id, name: tx.fromVault.name } : null,
     toVault: tx.toVault ? { id: tx.toVault.id, name: tx.toVault.name } : null,
+    recurringIncome: tx.recurringIncome,
+    subscription: tx.subscription,
+    plannedExpense: tx.plannedExpense,
+    liability: tx.liability,
   };
 }
 
 export default async function TransactionsPage() {
-  const [transactions, stats, categories] = await Promise.all([
-    getTransactions(),
-    getStats(),
-    getCategories(),
-  ]);
+  const [transactions, stats, categories, recurringAll, subsAll, plannedAll, liabilityAll] =
+    await Promise.all([
+      getTransactions(),
+      getStats(),
+      getCategories(),
+      getActiveRecurringForLinking(),
+      getActiveSubscriptionsForLinking(),
+      getUnpaidPlannedForLinking(),
+      getLiabilitiesForDebtLinking(),
+    ]);
 
   const savings = stats.monthlyIncome - stats.monthlyExpenses;
   const savingsRate =
@@ -107,6 +293,12 @@ export default async function TransactionsPage() {
           <p className="text-sm text-slate-500 mt-1">
             {transactions.length} записей · последние 100
           </p>
+          <Link
+            href="/settings/categories-tags"
+            className="text-xs text-blue-400/90 hover:text-blue-300 mt-2 inline-block"
+          >
+            Категории и теги
+          </Link>
         </div>
         <Link
           href="/transactions/new"
@@ -187,6 +379,10 @@ export default async function TransactionsPage() {
                         key={tx.id}
                         tx={toRowDto(tx)}
                         categories={categories}
+                        recurringOptions={recurringOptionsForVault(recurringAll, tx.toVaultId)}
+                        subscriptionOptions={subscriptionOptionsForVault(subsAll, tx.fromVaultId)}
+                        plannedOptions={plannedOptionsForVault(plannedAll, tx.fromVaultId)}
+                        liabilityOptions={liabilityOptionsForCurrency(liabilityAll, tx.currency)}
                       />
                     ))}
                   </div>

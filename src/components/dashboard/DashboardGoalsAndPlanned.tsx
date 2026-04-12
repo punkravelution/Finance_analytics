@@ -89,7 +89,7 @@ export function DashboardPlannedPreview({ expenses }: DashboardPlannedPreviewPro
         ) : (
           <div className="space-y-1">
             {expenses.map((row) => {
-              const overdue = row.daysUntilDue < 0;
+              const overdue = row.daysUntilDue != null && row.daysUntilDue < 0;
               return (
                 <div
                   key={row.id}

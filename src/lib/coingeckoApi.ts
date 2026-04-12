@@ -113,3 +113,55 @@ export async function coinGeckoSimplePriceRubUsd(
   const usd = typeof row.usd === "number" && Number.isFinite(row.usd) && row.usd > 0 ? row.usd : null;
   return { rub, usd };
 }
+
+const SIMPLE_PRICE_CHUNK = 40;
+
+/** Курсы RUB/USD для нескольких монет (ids через запятую, чанками). */
+export async function coinGeckoSimplePriceRubUsdMany(
+  coinIds: string[]
+): Promise<Map<string, { rub: number | null; usd: number | null }>> {
+  const out = new Map<string, { rub: number | null; usd: number | null }>();
+  const unique = [...new Set(coinIds.filter(isValidCoinGeckoId))];
+  if (unique.length === 0) return out;
+
+  for (let i = 0; i < unique.length; i += SIMPLE_PRICE_CHUNK) {
+    const chunk = unique.slice(i, i + SIMPLE_PRICE_CHUNK);
+    const url = `${COINGECKO_BASE}/simple/price?ids=${encodeURIComponent(chunk.join(","))}&vs_currencies=rub,usd`;
+    let response: Response;
+    try {
+      response = await fetchWithRateLimitRetry(url);
+    } catch {
+      for (const id of chunk) out.set(id, { rub: null, usd: null });
+      continue;
+    }
+    if (!response.ok) {
+      for (const id of chunk) out.set(id, { rub: null, usd: null });
+      continue;
+    }
+    let json: unknown;
+    try {
+      json = await response.json();
+    } catch {
+      for (const id of chunk) out.set(id, { rub: null, usd: null });
+      continue;
+    }
+    if (typeof json !== "object" || json === null) {
+      for (const id of chunk) out.set(id, { rub: null, usd: null });
+      continue;
+    }
+    const payload = json as Record<string, { rub?: number; usd?: number } | undefined>;
+    for (const id of chunk) {
+      const row = payload[id];
+      if (!row) {
+        out.set(id, { rub: null, usd: null });
+        continue;
+      }
+      const rub =
+        typeof row.rub === "number" && Number.isFinite(row.rub) && row.rub > 0 ? row.rub : null;
+      const usd =
+        typeof row.usd === "number" && Number.isFinite(row.usd) && row.usd > 0 ? row.usd : null;
+      out.set(id, { rub, usd });
+    }
+  }
+  return out;
+}

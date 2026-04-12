@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import type { Subscription } from "@/generated/prisma/client";
 
 export interface SubscriptionActionState {
   errors?: {
@@ -116,4 +117,44 @@ export async function deleteSubscription(id: string): Promise<void> {
   await prisma.subscription.delete({ where: { id } });
   revalidatePath("/subscriptions");
   redirect("/subscriptions");
+}
+
+export type SubscriptionHistoryEntry = {
+  id: string;
+  date: Date;
+  amount: number;
+  currency: string;
+  note: string | null;
+  deviationFromExpectedPct: number | null;
+};
+
+/** Подписка и связанные расходы за последние 12 месяцев. */
+export async function getSubscriptionWithHistory(id: string): Promise<{
+  subscription: Subscription;
+  entries: SubscriptionHistoryEntry[];
+} | null> {
+  const subscription = await prisma.subscription.findUnique({ where: { id } });
+  if (!subscription) return null;
+  const since = new Date();
+  since.setMonth(since.getMonth() - 12);
+  const txs = await prisma.transaction.findMany({
+    where: {
+      subscriptionId: id,
+      date: { gte: since },
+    },
+    orderBy: { date: "desc" },
+    select: { id: true, date: true, amount: true, currency: true, note: true },
+  });
+  const entries: SubscriptionHistoryEntry[] = txs.map((t) => ({
+    id: t.id,
+    date: t.date,
+    amount: t.amount,
+    currency: t.currency,
+    note: t.note,
+    deviationFromExpectedPct:
+      subscription.amount !== 0 && Number.isFinite(subscription.amount)
+        ? ((t.amount - subscription.amount) / subscription.amount) * 100
+        : null,
+  }));
+  return { subscription, entries };
 }

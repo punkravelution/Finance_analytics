@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import type { Liability } from "@/generated/prisma/client";
 
 export interface LiabilityActionState {
   errors?: {
@@ -87,6 +88,7 @@ export async function createLiability(
   }
 
   revalidatePath("/liabilities");
+  revalidatePath("/transactions");
   redirect("/liabilities");
 }
 
@@ -106,6 +108,7 @@ export async function updateLiability(
   }
 
   revalidatePath("/liabilities");
+  revalidatePath("/transactions");
   redirect("/liabilities");
 }
 
@@ -115,6 +118,7 @@ export async function closeLiability(id: string): Promise<void> {
     data: { isActive: false, currentBalance: 0 },
   });
   revalidatePath("/liabilities");
+  revalidatePath("/transactions");
   redirect("/liabilities");
 }
 
@@ -124,5 +128,49 @@ export async function disableLiability(id: string): Promise<void> {
     data: { isActive: false },
   });
   revalidatePath("/liabilities");
+  revalidatePath("/transactions");
   redirect("/liabilities");
+}
+
+export type LiabilityHistoryEntry = {
+  id: string;
+  date: Date;
+  amount: number;
+  currency: string;
+  note: string | null;
+  /** Отклонение от минимального платежа (если задан), в процентах */
+  deviationFromMinimumPaymentPct: number | null;
+};
+
+/** Долг и связанные платежи-расходы за последние 12 месяцев. */
+export async function getLiabilityWithHistory(id: string): Promise<{
+  liability: Liability;
+  entries: LiabilityHistoryEntry[];
+} | null> {
+  const liability = await prisma.liability.findUnique({ where: { id } });
+  if (!liability) return null;
+  const since = new Date();
+  since.setMonth(since.getMonth() - 12);
+  const txs = await prisma.transaction.findMany({
+    where: {
+      liabilityId: id,
+      date: { gte: since },
+    },
+    orderBy: { date: "desc" },
+    select: { id: true, date: true, amount: true, currency: true, note: true },
+  });
+  const entries: LiabilityHistoryEntry[] = txs.map((t) => ({
+    id: t.id,
+    date: t.date,
+    amount: t.amount,
+    currency: t.currency,
+    note: t.note,
+    deviationFromMinimumPaymentPct:
+      liability.minimumPayment != null &&
+      liability.minimumPayment > 0 &&
+      Number.isFinite(liability.minimumPayment)
+        ? ((t.amount - liability.minimumPayment) / liability.minimumPayment) * 100
+        : null,
+  }));
+  return { liability, entries };
 }

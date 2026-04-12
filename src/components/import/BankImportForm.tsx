@@ -27,6 +27,8 @@ interface ImportBankResult {
   skipped: number;
   duplicates: number;
   errors: string[];
+  /** Автопривязка к RecurringIncome / Subscription */
+  autoLinked: number;
 }
 
 function isOverlapResponse(v: unknown): v is ImportBankOverlapBody {
@@ -43,6 +45,7 @@ function isSuccessImportResult(v: unknown): v is ImportBankResult {
   const o = v as Record<string, unknown>;
   return (
     typeof o.imported === "number" &&
+    typeof o.autoLinked === "number" &&
     Array.isArray(o.errors) &&
     !("warning" in o && o.warning === "overlap")
   );
@@ -728,6 +731,9 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
             строк пропущено по статусу в файле: <strong className="text-white">{result.skipped}</strong>
             {", "}
             пропущено дублей: <strong className="text-white">{result.duplicates}</strong>
+            {", "}
+            автопривязано к регулярным доходам/подпискам:{" "}
+            <strong className="text-white">{result.autoLinked}</strong>
           </p>
           {result.errors.length > 0 && (
             <ul className="text-xs text-amber-200 list-disc pl-5 space-y-1">

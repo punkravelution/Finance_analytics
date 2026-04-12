@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import type { PlannedExpense } from "@/generated/prisma/client";
 import type { CreatePlannedExpenseInput } from "@/types";
 
 export type UpdatePlannedExpenseInput = Partial<CreatePlannedExpenseInput>;
@@ -47,7 +48,7 @@ export interface UpcomingPlannedExpense {
   name: string;
   amount: number;
   currency: string;
-  dueDate: Date;
+  dueDate: Date | null;
   vaultId: string | null;
   category: string;
   isPaid: boolean;
@@ -55,7 +56,8 @@ export interface UpcomingPlannedExpense {
   createdAt: Date;
   updatedAt: Date;
   vault: { id: string; name: string; currency: string } | null;
-  daysUntilDue: number;
+  /** null — платёж без конкретной даты */
+  daysUntilDue: number | null;
 }
 
 export async function getUpcomingExpenses(): Promise<UpcomingPlannedExpense[]> {
@@ -80,7 +82,8 @@ export async function getUpcomingExpenses(): Promise<UpcomingPlannedExpense[]> {
     vault: r.vault
       ? { id: r.vault.id, name: r.vault.name, currency: r.vault.currency }
       : null,
-    daysUntilDue: daysBetweenLocal(now, r.dueDate),
+    daysUntilDue:
+      r.dueDate != null ? daysBetweenLocal(now, r.dueDate) : null,
   }));
 }
 
@@ -97,10 +100,15 @@ export async function getUnpaidTotalsForNextThreeMonths(): Promise<CurrencyTotal
   const rows = await prisma.plannedExpense.findMany({
     where: {
       isPaid: false,
-      dueDate: {
-        gte: windowStart,
-        lt: windowEndExclusive,
-      },
+      OR: [
+        { dueDate: null },
+        {
+          dueDate: {
+            gte: windowStart,
+            lt: windowEndExclusive,
+          },
+        },
+      ],
     },
     select: { amount: true, currency: true },
   });
@@ -128,6 +136,7 @@ export async function createPlannedExpense(data: CreatePlannedExpenseInput) {
     include: { vault: true },
   });
   revalidatePath("/goals");
+  revalidatePath("/transactions");
   revalidatePath("/planned-expenses/new");
   return row;
 }
@@ -139,7 +148,7 @@ export async function updatePlannedExpense(id: string, data: UpdatePlannedExpens
       name: data.name,
       amount: data.amount,
       currency: data.currency,
-      dueDate: data.dueDate,
+      dueDate: data.dueDate === undefined ? undefined : data.dueDate,
       vaultId:
         data.vaultId === undefined
           ? undefined
@@ -153,6 +162,7 @@ export async function updatePlannedExpense(id: string, data: UpdatePlannedExpens
     include: { vault: true },
   });
   revalidatePath("/goals");
+  revalidatePath("/transactions");
   revalidatePath(`/planned-expenses/${id}/edit`);
   return row;
 }
@@ -160,6 +170,7 @@ export async function updatePlannedExpense(id: string, data: UpdatePlannedExpens
 export async function deletePlannedExpense(id: string) {
   const row = await prisma.plannedExpense.delete({ where: { id } });
   revalidatePath("/goals");
+  revalidatePath("/transactions");
   return row;
 }
 
@@ -169,5 +180,46 @@ export async function markPlannedExpensePaid(id: string) {
     data: { isPaid: true },
   });
   revalidatePath("/goals");
+  revalidatePath("/transactions");
   return row;
+}
+
+export type PlannedExpenseHistoryEntry = {
+  id: string;
+  date: Date;
+  amount: number;
+  currency: string;
+  note: string | null;
+  deviationFromExpectedPct: number | null;
+};
+
+/** План и связанные расходы за последние 12 месяцев (по plannedExpenseId). */
+export async function getPlannedExpenseWithHistory(id: string): Promise<{
+  plannedExpense: PlannedExpense;
+  entries: PlannedExpenseHistoryEntry[];
+} | null> {
+  const plannedExpense = await prisma.plannedExpense.findUnique({ where: { id } });
+  if (!plannedExpense) return null;
+  const since = new Date();
+  since.setMonth(since.getMonth() - 12);
+  const txs = await prisma.transaction.findMany({
+    where: {
+      plannedExpenseId: id,
+      date: { gte: since },
+    },
+    orderBy: { date: "desc" },
+    select: { id: true, date: true, amount: true, currency: true, note: true },
+  });
+  const entries: PlannedExpenseHistoryEntry[] = txs.map((t) => ({
+    id: t.id,
+    date: t.date,
+    amount: t.amount,
+    currency: t.currency,
+    note: t.note,
+    deviationFromExpectedPct:
+      plannedExpense.amount !== 0 && Number.isFinite(plannedExpense.amount)
+        ? ((t.amount - plannedExpense.amount) / plannedExpense.amount) * 100
+        : null,
+  }));
+  return { plannedExpense, entries };
 }

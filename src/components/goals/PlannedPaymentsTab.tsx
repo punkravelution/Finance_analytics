@@ -44,8 +44,8 @@ function startOfLocalDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-function isOverdue(due: Date, paid: boolean, now: Date): boolean {
-  if (paid) return false;
+function isOverdue(due: Date | null, paid: boolean, now: Date): boolean {
+  if (paid || due == null) return false;
   return startOfLocalDay(due).getTime() < startOfLocalDay(now).getTime();
 }
 
@@ -128,7 +128,8 @@ export function PlannedPaymentsTab({
                               )}
                             </div>
                             <p className="text-sm text-slate-300">
-                              {formatCurrency(row.amount, row.currency)} · {formatDate(row.dueDate)}
+                              {formatCurrency(row.amount, row.currency)} ·{" "}
+                              {row.dueDate ? formatDate(row.dueDate) : "без даты"}
                             </p>
                             {row.vault && (
                               <p className="text-xs text-slate-500">Хранилище: {row.vault.name}</p>

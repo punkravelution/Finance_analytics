@@ -3,6 +3,7 @@ import { Coins } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CurrencyCreateForm } from "@/components/currencies/CurrencyCreateForm";
+import { CryptoCurrencyCreateForm } from "@/components/currencies/CryptoCurrencyCreateForm";
 import { ExchangeRateUpsertForm } from "@/components/currencies/ExchangeRateUpsertForm";
 import { CbrRatesUpdateForm } from "@/components/currencies/CbrRatesUpdateForm";
 import { CryptoRatesUpdateForm } from "@/components/currencies/CryptoRatesUpdateForm";
@@ -119,16 +120,25 @@ export default async function CurrenciesPage() {
           Валюты
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Справочник валют, выбор из выгрузки ЦБ РФ и ручное управление курсами
+          Фиат из выгрузки ЦБ РФ, криптовалюты через CoinGecko и ручное управление курсами
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Добавить валюту</CardTitle>
+          <CardTitle>Добавить валюту (ЦБ РФ)</CardTitle>
         </CardHeader>
         <CardContent>
           <CurrencyCreateForm />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Добавить криптовалюту (CoinGecko)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <CryptoCurrencyCreateForm />
         </CardContent>
       </Card>
 
@@ -149,6 +159,7 @@ export default async function CurrenciesPage() {
                   </p>
                   <p className="text-xs text-slate-500">
                     {c.isActive ? "Активна" : "Неактивна"} · sortOrder: {c.sortOrder}
+                    {c.coinGeckoId ? ` · CoinGecko: ${c.coinGeckoId}` : ""}
                   </p>
                 </div>
                 <Link

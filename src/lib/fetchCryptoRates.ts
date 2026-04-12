@@ -1,9 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { fetchWithRateLimitRetry } from "@/lib/coingeckoApi";
+import { coinGeckoSimplePriceRubUsdMany } from "@/lib/coingeckoApi";
 
-const COINGECKO_URL =
-  "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,litecoin,tether,binancecoin,solana&vs_currencies=rub,usd";
-
+/** Встроенный список: id CoinGecko → тикер в приложении */
 const ID_TO_TICKER: Record<string, string> = {
   bitcoin: "BTC",
   ethereum: "ETH",
@@ -13,7 +11,7 @@ const ID_TO_TICKER: Record<string, string> = {
   solana: "SOL",
 };
 
-type CoinGeckoResponse = Record<string, { rub?: number; usd?: number }>;
+const BUILTIN_COIN_IDS = Object.keys(ID_TO_TICKER);
 
 function getRatesDate(): Date {
   const date = new Date();
@@ -21,25 +19,28 @@ function getRatesDate(): Date {
   return date;
 }
 
+/** id монеты → код валюты в справочнике (встроенные + из БД). */
+async function buildCoinIdToTickerMap(): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  for (const id of BUILTIN_COIN_IDS) {
+    map.set(id, ID_TO_TICKER[id]!);
+  }
+  const fromDb = await prisma.currency.findMany({
+    where: { coinGeckoId: { not: null }, isActive: true },
+    select: { code: true, coinGeckoId: true },
+  });
+  for (const row of fromDb) {
+    if (row.coinGeckoId) {
+      map.set(row.coinGeckoId, row.code.toUpperCase());
+    }
+  }
+  return map;
+}
+
 export async function updateCryptoRates(): Promise<number> {
-  let response: Response;
-  try {
-    response = await fetchWithRateLimitRetry(COINGECKO_URL);
-  } catch (error) {
-    if (error instanceof Error && error.message) throw error;
-    throw new Error("Не удалось подключиться к API CoinGecko");
-  }
-
-  if (!response.ok) {
-    throw new Error(`CoinGecko временно недоступен (HTTP ${response.status})`);
-  }
-
-  let payload: CoinGeckoResponse;
-  try {
-    payload = (await response.json()) as CoinGeckoResponse;
-  } catch {
-    throw new Error("Не удалось разобрать ответ CoinGecko");
-  }
+  const idToTicker = await buildCoinIdToTickerMap();
+  const allIds = [...idToTicker.keys()];
+  const prices = await coinGeckoSimplePriceRubUsdMany(allIds);
 
   const date = getRatesDate();
   let updatedCount = 0;
@@ -65,9 +66,11 @@ export async function updateCryptoRates(): Promise<number> {
     updatedCount += 1;
   };
 
-  for (const [coinId, quote] of Object.entries(payload)) {
-    const ticker = ID_TO_TICKER[coinId];
+  for (const coinId of allIds) {
+    const ticker = idToTicker.get(coinId);
     if (!ticker) continue;
+    const quote = prices.get(coinId);
+    if (!quote) continue;
 
     if (typeof quote.rub === "number" && Number.isFinite(quote.rub) && quote.rub > 0) {
       managedPairs.push({ fromCurrency: ticker, toCurrency: "RUB" });

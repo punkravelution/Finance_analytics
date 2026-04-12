@@ -15,7 +15,7 @@ interface Props {
 export default async function EditTransactionPage({ params }: Props) {
   const { id } = await params;
 
-  const [transaction, vaults, categories] = await Promise.all([
+  const [transaction, vaults, categories, tagPresetRows] = await Promise.all([
     prisma.transaction.findUnique({ where: { id } }),
     prisma.vault.findMany({
       where: { isActive: true },
@@ -26,7 +26,9 @@ export default async function EditTransactionPage({ params }: Props) {
       select: { id: true, name: true, type: true, color: true },
       orderBy: { name: "asc" },
     }),
+    prisma.tagPreset.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
   ]);
+  const tagPresets = tagPresetRows.map((r) => r.name);
 
   if (!transaction) notFound();
 
@@ -54,6 +56,7 @@ export default async function EditTransactionPage({ params }: Props) {
             action={action}
             vaults={vaults}
             categories={categories}
+            tagPresets={tagPresets}
             cancelHref="/transactions"
             submitLabel="Сохранить изменения"
             defaultValues={{

@@ -193,7 +193,8 @@ export interface CreatePlannedExpenseInput {
   name: string;
   amount: number;
   currency: string;
-  dueDate: Date;
+  /** null — «без даты», оплатить когда будет возможность */
+  dueDate: Date | null;
   vaultId?: string | null;
   category: PlannedExpenseCategory;
   isPaid?: boolean;

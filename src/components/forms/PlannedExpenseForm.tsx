@@ -50,8 +50,11 @@ export function PlannedExpenseForm({ vaults, initialData, onSubmit }: PlannedExp
   const [currency, setCurrency] = useState(
     initialData?.currency ?? vaults[0]?.currency ?? "RUB"
   );
+  const [noDueDate, setNoDueDate] = useState(initialData?.dueDate == null);
   const [dueDate, setDueDate] = useState(
-    initialData?.dueDate ? toDateInputValue(initialData.dueDate) : toDateInputValue(new Date())
+    initialData?.dueDate
+      ? toDateInputValue(initialData.dueDate)
+      : toDateInputValue(new Date())
   );
   const [vaultId, setVaultId] = useState(initialData?.vaultId ?? "");
   const [note, setNote] = useState(initialData?.note ?? "");
@@ -75,7 +78,7 @@ export function PlannedExpenseForm({ vaults, initialData, onSubmit }: PlannedExp
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       nextErrors.amount = "Сумма должна быть больше 0";
     }
-    if (!dueDate) {
+    if (!noDueDate && !dueDate) {
       nextErrors.dueDate = "Укажите дату";
     }
     return nextErrors;
@@ -94,7 +97,7 @@ export function PlannedExpenseForm({ vaults, initialData, onSubmit }: PlannedExp
         category,
         amount: Number(amount),
         currency,
-        dueDate: new Date(dueDate),
+        dueDate: noDueDate ? null : new Date(dueDate),
         vaultId: vaultId.trim() ? vaultId : null,
         note: note.trim() ? note.trim() : null,
         isPaid,
@@ -179,14 +182,29 @@ export function PlannedExpenseForm({ vaults, initialData, onSubmit }: PlannedExp
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                Дата платежа <span className="text-red-400">*</span>
+                Дата платежа
+                {!noDueDate ? <span className="text-red-400"> *</span> : null}
               </label>
               <input
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
-                className={`${inputClass} [color-scheme:dark]`}
+                disabled={noDueDate}
+                className={`${inputClass} [color-scheme:dark] disabled:opacity-50 disabled:cursor-not-allowed`}
               />
+              <label className="mt-2 flex items-center gap-2 text-sm text-slate-400 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={noDueDate}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setNoDueDate(on);
+                    if (on) setErrors((prev) => ({ ...prev, dueDate: undefined }));
+                  }}
+                  className="w-4 h-4 rounded border-slate-600 accent-blue-500"
+                />
+                Нет даты
+              </label>
               {errors.dueDate && <p className="mt-1 text-xs text-red-400">{errors.dueDate}</p>}
             </div>
           </div>

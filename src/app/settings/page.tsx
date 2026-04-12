@@ -1,4 +1,5 @@
-import { Settings, Database, Info, Globe } from "lucide-react";
+import Link from "next/link";
+import { Settings, Database, Info, Globe, Tags } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getBaseCurrency, getActiveCurrencies } from "@/lib/currency";
 import { BaseCurrencyForm } from "@/components/settings/BaseCurrencyForm";
@@ -22,6 +23,27 @@ export default async function SettingsPage() {
       </div>
 
       <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Tags size={15} />
+              Категории и теги операций
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-slate-400 mb-4">
+              Добавляйте свои категории доходов и расходов и список частых тегов — их удобно выбирать при
+              вводе операции.
+            </p>
+            <Link
+              href="/settings/categories-tags"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600/90 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              Открыть справочники
+            </Link>
+          </CardContent>
+        </Card>
+
         {/* Базовая валюта */}
         <Card>
           <CardHeader>

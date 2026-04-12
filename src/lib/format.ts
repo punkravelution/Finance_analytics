@@ -80,7 +80,8 @@ export function formatGoalDeadlinePhrase(daysUntil: number | null): string {
  * Относительная формулировка до даты платежа (положительное — вперёди, отрицательное — просрочка).
  * Для горизонта от ~1.5 мес использует месяцы.
  */
-export function formatRelativeDueFromDays(daysUntilDue: number): string {
+export function formatRelativeDueFromDays(daysUntilDue: number | null): string {
+  if (daysUntilDue == null) return "без даты";
   const rtf = new Intl.RelativeTimeFormat("ru", { numeric: "auto" });
   const useMonths = Math.abs(daysUntilDue) >= 45;
   if (useMonths) {

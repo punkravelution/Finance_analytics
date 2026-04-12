@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { convertAmount, getBaseCurrency, getExchangeRates } from "@/lib/currency";
 import type { CreateRecurringIncomeInput } from "@/types";
+import type { RecurringIncome } from "@/generated/prisma/client";
 
 type UpdateRecurringIncomeInput = Partial<CreateRecurringIncomeInput>;
 
@@ -124,6 +125,46 @@ export async function deleteRecurringIncome(id: string) {
 
   revalidatePath("/recurring-incomes");
   return recurringIncome;
+}
+
+export type RecurringIncomeHistoryEntry = {
+  id: string;
+  date: Date;
+  amount: number;
+  currency: string;
+  note: string | null;
+  deviationFromExpectedPct: number | null;
+};
+
+/** Регулярный доход и связанные транзакции за последние 12 месяцев. */
+export async function getRecurringIncomeWithHistory(id: string): Promise<{
+  income: RecurringIncome;
+  entries: RecurringIncomeHistoryEntry[];
+} | null> {
+  const income = await prisma.recurringIncome.findUnique({ where: { id } });
+  if (!income) return null;
+  const since = new Date();
+  since.setMonth(since.getMonth() - 12);
+  const txs = await prisma.transaction.findMany({
+    where: {
+      recurringIncomeId: id,
+      date: { gte: since },
+    },
+    orderBy: { date: "desc" },
+    select: { id: true, date: true, amount: true, currency: true, note: true },
+  });
+  const entries: RecurringIncomeHistoryEntry[] = txs.map((t) => ({
+    id: t.id,
+    date: t.date,
+    amount: t.amount,
+    currency: t.currency,
+    note: t.note,
+    deviationFromExpectedPct:
+      income.amount !== 0 && Number.isFinite(income.amount)
+        ? ((t.amount - income.amount) / income.amount) * 100
+        : null,
+  }));
+  return { income, entries };
 }
 
 export async function getTotalMonthlyIncome(): Promise<{
