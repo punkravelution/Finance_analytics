@@ -4,7 +4,13 @@ import {
   PiggyBank,
   BarChart2,
 } from "lucide-react";
-import { getDashboardStats, getVaultSummaries, getRecentTransactions } from "@/lib/analytics";
+import {
+  getDashboardStats,
+  getVaultSummaries,
+  getRecentTransactions,
+  getDashboardAnomalies,
+  getPreviousMonthSummary,
+} from "@/lib/analytics";
 import { formatCurrency, formatDate, formatDateShort, formatPercent } from "@/lib/format";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { VaultsList } from "@/components/dashboard/VaultsList";
@@ -34,6 +40,8 @@ export default async function HomePage() {
     recurringIncomeTotals,
     goalsProgress,
     upcomingExpenses,
+    anomalies,
+    monthlySummary,
   ] = await Promise.all([
     getDashboardStats(),
     getVaultSummaries(),
@@ -43,6 +51,8 @@ export default async function HomePage() {
     getTotalMonthlyIncome(),
     getGoalsProgress(),
     getUpcomingExpenses(),
+    getDashboardAnomalies(),
+    getPreviousMonthSummary(),
   ]);
 
   const chartData = capitalHistory12.map((d) => ({
@@ -85,6 +95,18 @@ export default async function HomePage() {
               У {stats.assetsMissingValuationCount} актив(ов) не указана текущая стоимость, капитал может быть занижен.
             </p>
           )}
+          {anomalies.map((a, idx) => (
+            <p
+              key={`${a.severity}-${idx}-${a.message}`}
+              className={`mb-3 rounded-md px-3 py-2 text-xs ${
+                a.severity === "critical"
+                  ? "border border-red-800/50 bg-red-950/30 text-red-200"
+                  : "border border-amber-700/50 bg-amber-950/30 text-amber-200"
+              }`}
+            >
+              {a.message}
+            </p>
+          ))}
           <div className="flex items-end gap-4 flex-wrap">
             <p className="text-4xl font-bold tabular-nums text-white">
               {formatCurrency(stats.totalNetWorth)}
@@ -206,6 +228,44 @@ export default async function HomePage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
         <DashboardGoalsPreview goals={topGoals} />
         <DashboardPlannedPreview expenses={topPlanned} />
+      </div>
+
+      <div className="mb-5">
+        <Card>
+          <h3 className="text-sm font-semibold text-white mb-2">
+            Месячный отчёт-резюме: {monthlySummary.monthLabel}
+          </h3>
+          <div className="space-y-1 text-sm text-slate-300">
+            <p>
+              Изменение капитала за месяц:{" "}
+              <span className={monthlySummary.capitalDelta >= 0 ? "text-green-400" : "text-red-400"}>
+                {monthlySummary.capitalDelta >= 0 ? "+" : ""}
+                {formatCurrency(monthlySummary.capitalDelta)}
+              </span>
+            </p>
+            <p>
+              Цель сбережений:{" "}
+              <span className={monthlySummary.savingsGoalMet ? "text-green-400" : "text-amber-300"}>
+                {monthlySummary.savingsGoalMet ? "выполнена" : "не выполнена"}
+              </span>{" "}
+              ({monthlySummary.savingsRatePct.toFixed(1)}% из {monthlySummary.targetSavingsPct.toFixed(0)}%)
+            </p>
+            {monthlySummary.overspend.length > 0 ? (
+              <p>
+                Перерасход:{" "}
+                {monthlySummary.overspend
+                  .map((o) => `${o.category} (${formatCurrency(o.overspend)})`)
+                  .join(", ")}
+              </p>
+            ) : (
+              <p>Перерасходов по бюджетам не обнаружено.</p>
+            )}
+            <p className="pt-1 text-slate-400">Что сделать в следующем месяце:</p>
+            {monthlySummary.nextMonthActions.map((a) => (
+              <p key={a}>• {a}</p>
+            ))}
+          </div>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">

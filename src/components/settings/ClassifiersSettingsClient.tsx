@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createCategoryAction, deleteCategory } from "@/app/actions/category";
 import { createTagPresetAction, deleteTagPreset } from "@/app/actions/tagPreset";
+import { upsertCategoryBudget } from "@/app/actions/categoryBudget";
 import { TRANSACTION_TYPE_LABELS, type TransactionType } from "@/types";
 
 const inputClass =
@@ -17,11 +18,14 @@ export interface ClassifierCategoryRow {
   color: string | null;
   icon: string | null;
   transactionCount: number;
+  budgetLimit: number | null;
+  spentThisMonth: number;
 }
 
 interface Props {
   categories: ClassifierCategoryRow[];
   tagPresets: { id: string; name: string }[];
+  baseCurrency: string;
 }
 
 function typeLabel(type: string): string {
@@ -90,7 +94,53 @@ function DeleteTagButton({ id }: { id: string }) {
   );
 }
 
-export function ClassifiersSettingsClient({ categories, tagPresets }: Props) {
+function formatMoney(value: number, currency: string): string {
+  return new Intl.NumberFormat("ru-RU", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: currency === "RUB" ? 0 : 2,
+  }).format(value);
+}
+
+function CategoryBudgetCell({
+  categoryId,
+  budgetLimit,
+}: {
+  categoryId: string;
+  budgetLimit: number | null;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [draft, setDraft] = useState(budgetLimit != null ? String(budgetLimit) : "");
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder="лимит"
+        className="w-24 rounded-md border border-[hsl(216,34%,20%)] bg-[hsl(222,47%,10%)] px-2 py-1 text-xs text-white"
+      />
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            const fd = new FormData();
+            fd.set("limit", draft);
+            await upsertCategoryBudget(categoryId, fd);
+            router.refresh();
+          })
+        }
+        className="rounded-md bg-blue-600 px-2 py-1 text-[11px] text-white hover:bg-blue-500 disabled:opacity-50"
+      >
+        {pending ? "..." : "Сохранить"}
+      </button>
+    </div>
+  );
+}
+
+export function ClassifiersSettingsClient({ categories, tagPresets, baseCurrency }: Props) {
   const router = useRouter();
   const [catState, catAction, catPending] = useActionState(createCategoryAction, {});
   const [tagState, tagAction, tagPending] = useActionState(createTagPresetAction, {});
@@ -161,6 +211,8 @@ export function ClassifiersSettingsClient({ categories, tagPresets }: Props) {
               <tr>
                 <th className="px-3 py-2 font-medium">Название</th>
                 <th className="px-3 py-2 font-medium">Тип</th>
+                <th className="px-3 py-2 font-medium">Бюджет / мес</th>
+                <th className="px-3 py-2 font-medium">Прогресс</th>
                 <th className="px-3 py-2 font-medium">Операций</th>
                 <th className="px-3 py-2 font-medium w-24" />
               </tr>
@@ -168,7 +220,7 @@ export function ClassifiersSettingsClient({ categories, tagPresets }: Props) {
             <tbody>
               {categories.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
+                  <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
                     Категорий пока нет
                   </td>
                 </tr>
@@ -187,6 +239,29 @@ export function ClassifiersSettingsClient({ categories, tagPresets }: Props) {
                       </span>
                     </td>
                     <td className="px-3 py-2.5 text-slate-400">{typeLabel(c.type)}</td>
+                    <td className="px-3 py-2.5">
+                      <CategoryBudgetCell categoryId={c.id} budgetLimit={c.budgetLimit} />
+                    </td>
+                    <td className="px-3 py-2.5 text-xs">
+                      {c.budgetLimit != null && c.budgetLimit > 0 ? (
+                        <div className="space-y-1">
+                          <p className="text-slate-300">
+                            {formatMoney(c.spentThisMonth, baseCurrency)} / {formatMoney(c.budgetLimit, baseCurrency)}
+                          </p>
+                          <p
+                            className={
+                              c.spentThisMonth <= c.budgetLimit
+                                ? "text-emerald-400"
+                                : "text-amber-300"
+                            }
+                          >
+                            {((c.spentThisMonth / c.budgetLimit) * 100).toFixed(0)}%
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-slate-500">—</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2.5 text-slate-500 tabular-nums">{c.transactionCount}</td>
                     <td className="px-3 py-2.5 text-right">
                       <DeleteCategoryButton

@@ -8,7 +8,6 @@ import { reconcileManualVaultBalancesIfDue } from "@/lib/manualBalanceReconcile"
 import type {
   CapitalGrowthMetrics,
   CapitalHistoryDay,
-  HistoryPeriodMonths,
   MonthlyCapitalRow,
 } from "@/types/capitalHistory";
 

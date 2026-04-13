@@ -119,7 +119,7 @@ async function main() {
   });
 
   // cash/MANUAL — доступный + ликвидный + общий
-  const cash = await prisma.vault.upsert({
+  await prisma.vault.upsert({
     where: { id: "vault-cash" },
     update: { balanceSource: "MANUAL", manualBalance: 0, includeInSpendableBalance: true, includeInLiquidCapital: true },
     create: {
@@ -184,7 +184,7 @@ async function main() {
   });
 
   // deposit/MANUAL — не доступный, не ликвидный, только общий
-  const deposit = await prisma.vault.upsert({
+  await prisma.vault.upsert({
     where: { id: "vault-deposit" },
     update: { balanceSource: "MANUAL", manualBalance: 0, includeInSpendableBalance: false, includeInLiquidCapital: false },
     create: {

@@ -1,15 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { getVaultSummaries, getDashboardStats } from "@/lib/analytics";
 import { getBaseCurrency, getExchangeRates, convertAmount, type ExchangeRateMap } from "@/lib/currency";
-import { formatCurrency, formatDate, formatNumber, formatPercent } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { getTotalMonthlyIncome } from "@/app/actions/recurringIncome";
 import { getGoalsProgress } from "@/app/actions/goal";
-import {
-  ASSET_TYPE_LABELS,
-  VAULT_TYPE_LABELS,
-  type AssetType,
-  type VaultType,
-} from "@/types";
+import { getCategoryBudgetMap } from "@/lib/categoryBudgets";
 
 function monthlyFactorSubscription(period: string): number {
   if (period === "quarterly") return 1 / 3;
@@ -33,46 +28,12 @@ const RECURRING_CATEGORY_RU: Record<string, string> = {
   other: "Другое",
 };
 
-const SUBSCRIPTION_PERIOD_RU: Record<string, string> = {
-  monthly: "ежемесячно",
-  quarterly: "ежеквартально",
-  yearly: "ежегодно",
-};
-
 const LIABILITY_TYPE_RU: Record<string, string> = {
   credit_card: "Кредитная карта",
   installment: "Рассрочка",
   loan: "Займ / кредит",
   other: "Другое",
 };
-
-function vaultAggregateBucket(type: string): "bank" | "crypto" | "investments" | "cash" | "other" {
-  if (type === "bank") return "bank";
-  if (type === "crypto") return "crypto";
-  if (type === "investment" || type === "deposit") return "investments";
-  if (type === "cash") return "cash";
-  return "other";
-}
-
-const BUCKET_LABEL: Record<ReturnType<typeof vaultAggregateBucket>, string> = {
-  bank: "Банк",
-  crypto: "Крипто",
-  investments: "Инвестиции и вклады",
-  cash: "Наличные",
-  other: "Прочее (Steam, имущество, другое)",
-};
-
-function assetDisplayValue(a: {
-  quantity: number;
-  currentTotalValue: number | null;
-  currentUnitPrice: number | null;
-}): number {
-  if (a.currentTotalValue != null && Number.isFinite(a.currentTotalValue)) {
-    return a.currentTotalValue;
-  }
-  const unit = a.currentUnitPrice ?? 0;
-  return a.quantity * unit;
-}
 
 async function getTopExpenseCategories(
   days: number,
@@ -125,73 +86,12 @@ async function getTransactionTotals90d(
   return { incomeBase, expenseBase };
 }
 
-interface MonthWindow {
-  key: string;
-  titleLong: string;
-  labelShort: string;
-  start: Date;
-  end: Date;
-}
-
-function capitalizeFirstRu(s: string): string {
-  if (!s) return s;
-  return s.charAt(0).toLocaleUpperCase("ru-RU") + s.slice(1);
-}
-
-function buildThreeMonthWindows(now: Date): MonthWindow[] {
-  const out: MonthWindow[] = [];
-  for (let offset = 2; offset >= 0; offset -= 1) {
-    const ref = new Date(now.getFullYear(), now.getMonth() - offset, 1);
-    const y = ref.getFullYear();
-    const m = ref.getMonth();
-    const start = new Date(y, m, 1, 0, 0, 0, 0);
-    const isCurrent = y === now.getFullYear() && m === now.getMonth();
-    const end = isCurrent
-      ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
-      : new Date(y, m + 1, 0, 23, 59, 59, 999);
-    const key = `${y}-${String(m + 1).padStart(2, "0")}`;
-    const titleLong = capitalizeFirstRu(
-      new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" }).format(start)
-    );
-    const shortRaw = new Intl.DateTimeFormat("ru-RU", { month: "short" }).format(start);
-    const labelShort = shortRaw.replace(/\.$/, "").trim();
-    out.push({ key, titleLong, labelShort, start, end });
-  }
-  return out;
-}
-
-function monthKeyForDate(windows: MonthWindow[], date: Date): string | null {
-  const t = date.getTime();
-  for (const w of windows) {
-    if (t >= w.start.getTime() && t <= w.end.getTime()) return w.key;
-  }
-  return null;
-}
-
-type ThreeMonthTxRow = {
-  type: string;
-  amount: number;
-  currency: string;
-  date: Date;
-  categoryId: string | null;
-  category: { name: string } | null;
-};
 
 /** Текстовый снимок для подстановки в system prompt (русский). */
 export async function buildFinancialContextForAi(): Promise<string> {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-  const threeMonthStart = new Date(now.getFullYear(), now.getMonth() - 2, 1, 0, 0, 0, 0);
-  const threeMonthEnd = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    23,
-    59,
-    59,
-    999
-  );
 
   const [baseCurrency, rates] = await Promise.all([getBaseCurrency(), getExchangeRates()]);
 
@@ -207,10 +107,9 @@ export async function buildFinancialContextForAi(): Promise<string> {
     recurringTotals,
     topExpense90,
     tx90,
-    linkedIncomeMonth,
-    linkedSubMonth,
     linkedPlannedMonth,
-    txThreeMonthForAi,
+    categoryBudgetMap,
+    monthExpenseRows,
   ] = await Promise.all([
     getVaultSummaries(),
     getDashboardStats(),
@@ -241,39 +140,19 @@ export async function buildFinancialContextForAi(): Promise<string> {
     getTransactionTotals90d(baseCurrency, rates),
     prisma.transaction.findMany({
       where: {
-        type: "income",
-        recurringIncomeId: { not: null },
-        date: { gte: monthStart, lte: monthEnd },
-      },
-      select: { recurringIncomeId: true },
-    }),
-    prisma.transaction.findMany({
-      where: {
-        type: "expense",
-        subscriptionId: { not: null },
-        date: { gte: monthStart, lte: monthEnd },
-      },
-      select: { subscriptionId: true },
-    }),
-    prisma.transaction.findMany({
-      where: {
         type: "expense",
         plannedExpenseId: { not: null },
         date: { gte: monthStart, lte: monthEnd },
       },
       select: { plannedExpenseId: true },
     }),
+    getCategoryBudgetMap(),
     prisma.transaction.findMany({
-      where: {
-        date: { gte: threeMonthStart, lte: threeMonthEnd },
-        type: { in: ["income", "expense"] },
-      },
+      where: { type: "expense", date: { gte: monthStart, lte: monthEnd }, categoryId: { not: null } },
       select: {
-        type: true,
+        categoryId: true,
         amount: true,
         currency: true,
-        date: true,
-        categoryId: true,
         category: { select: { name: true } },
       },
     }),
@@ -294,40 +173,49 @@ export async function buildFinancialContextForAi(): Promise<string> {
   lines.push(`Базовая валюта приложения: ${baseCurrency}.`);
   lines.push("");
 
-  // ─── A) Капитал и хранилища ───────────────────────────────────────────────
-  lines.push("=== A) КАПИТАЛ И ХРАНИЛИЩА ===");
-  lines.push(
-    `Чистый капитал по учёту приложения (только хранилища с «включить в капитал»): ${formatCurrency(dashboard.totalNetWorth, baseCurrency)}.`
-  );
-  lines.push("По каждому активному хранилищу:");
-  for (const v of vaultSummaries) {
-    const typeLabel = VAULT_TYPE_LABELS[v.type as VaultType] ?? v.type;
-    lines.push(
-      `  — «${v.name}» (${typeLabel}): баланс ${formatCurrency(v.balance, v.balanceCurrency)} ≈ ${formatCurrency(v.balanceInBaseCurrency, baseCurrency)} в базовой валюте`
-    );
-  }
-  if (vaultSummaries.length === 0) {
-    lines.push("  (нет активных хранилищ)");
-  }
+  // ─── A) Капитал и ликвидность ──────────────────────────────────────────────
+  lines.push("=== А) КАПИТАЛ И ЛИКВИДНОСТЬ ===");
+  lines.push(`Чистый капитал: ${formatCurrency(dashboard.totalNetWorth, baseCurrency)}`);
+  const highLiquidity = vaultSummaries
+    .filter((v) => v.liquidityLevel === "high")
+    .reduce((sum, v) => sum + v.balanceInBaseCurrency, 0);
+  const mediumLiquidity = vaultSummaries
+    .filter((v) => v.liquidityLevel === "medium")
+    .reduce((sum, v) => sum + v.balanceInBaseCurrency, 0);
+  const lowLiquidity = vaultSummaries
+    .filter((v) => v.liquidityLevel === "low" || v.liquidityLevel === "illiquid")
+    .reduce((sum, v) => sum + v.balanceInBaseCurrency, 0);
+  lines.push(`Ликвидные средства (high): ${formatCurrency(highLiquidity, baseCurrency)}`);
+  lines.push(`Среднеликвидные (medium): ${formatCurrency(mediumLiquidity, baseCurrency)}`);
+  lines.push(`Низколиквидные (low/illiquid): ${formatCurrency(lowLiquidity, baseCurrency)}`);
 
-  const bucketTotals: Record<ReturnType<typeof vaultAggregateBucket>, number> = {
-    bank: 0,
-    crypto: 0,
-    investments: 0,
-    cash: 0,
-    other: 0,
-  };
+  const foreignCurrencyMap = new Map<string, number>();
   for (const v of vaultSummaries) {
-    bucketTotals[vaultAggregateBucket(v.type)] += v.balanceInBaseCurrency;
+    const code = v.balanceCurrency.trim().toUpperCase();
+    if (!code || code === baseCurrency.toUpperCase()) continue;
+    if (Math.abs(v.balance) <= 0) continue;
+    foreignCurrencyMap.set(code, (foreignCurrencyMap.get(code) ?? 0) + v.balance);
   }
-  lines.push("Разбивка суммы балансов по активным хранилищам (в базовой валюте, по типам):");
-  (Object.keys(bucketTotals) as Array<keyof typeof bucketTotals>).forEach((k) => {
-    lines.push(`  — ${BUCKET_LABEL[k]}: ${formatCurrency(bucketTotals[k], baseCurrency)}`);
-  });
+  if (foreignCurrencyMap.size > 0) {
+    const foreignText = [...foreignCurrencyMap.entries()]
+      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+      .slice(0, 6)
+      .map(([code, amount]) => `${amount.toFixed(2)} ${code}`)
+      .join(", ");
+    lines.push(`Валютные активы: ${foreignText}`);
+  }
+  if (vaultSummaries.length <= 3) {
+    lines.push("Детали хранилищ:");
+    for (const v of vaultSummaries) {
+      lines.push(
+        `  — ${v.name}: ${formatCurrency(v.balance, v.balanceCurrency)} (≈ ${formatCurrency(v.balanceInBaseCurrency, baseCurrency)})`
+      );
+    }
+  }
   lines.push("");
 
-  // ─── B) Денежный поток ────────────────────────────────────────────────────
-  lines.push("=== B) ДЕНЕЖНЫЙ ПОТОК (регулярные доходы и подписки) ===");
+  // ─── В) Регулярные доходы ──────────────────────────────────────────────────
+  lines.push("=== В) РЕГУЛЯРНЫЕ ДОХОДЫ ===");
   lines.push("Активные регулярные доходы (RecurringIncome):");
   for (const r of recurringIncomes) {
     const period = RECURRING_PERIOD_RU[r.billingPeriod] ?? r.billingPeriod;
@@ -344,24 +232,29 @@ export async function buildFinancialContextForAi(): Promise<string> {
   );
   lines.push("");
 
-  lines.push("Активные подписки (Subscription):");
+  // ─── Б) Регулярные расходы ─────────────────────────────────────────────────
+  lines.push("=== Б) РЕГУЛЯРНЫЕ РАСХОДЫ ===");
   let subscriptionsMonthlyBase = 0;
+  const subscriptionMonthlyRows: Array<{ name: string; monthlyBase: number }> = [];
   for (const s of subscriptions) {
     const factor = monthlyFactorSubscription(s.billingPeriod);
     const monthlyNative = s.amount * factor;
     const monthlyBase = convertAmount(monthlyNative, s.currency, baseCurrency, rates);
     subscriptionsMonthlyBase += monthlyBase;
-    const period = SUBSCRIPTION_PERIOD_RU[s.billingPeriod] ?? s.billingPeriod;
+    subscriptionMonthlyRows.push({ name: s.name, monthlyBase });
+  }
+  lines.push(`Подписок активных: ${subscriptions.length} штук на ${formatCurrency(subscriptionsMonthlyBase, baseCurrency)}/мес`);
+  const topSubscriptions = subscriptionMonthlyRows
+    .filter((x) => x.monthlyBase > 500)
+    .sort((a, b) => b.monthlyBase - a.monthlyBase)
+    .slice(0, 2);
+  if (topSubscriptions.length > 0) {
     lines.push(
-      `  — «${s.name}»: ${formatCurrency(s.amount, s.currency)} (${period}), следующее списание: ${formatDate(s.nextChargeDate)}; в пересчёте на месяц ≈ ${formatCurrency(monthlyBase, baseCurrency)}`
+      `Самые крупные: ${topSubscriptions
+        .map((s) => `${s.name} ${formatCurrency(s.monthlyBase, baseCurrency)}`)
+        .join(", ")}`
     );
   }
-  if (subscriptions.length === 0) {
-    lines.push("  (нет активных подписок)");
-  }
-  lines.push(
-    `Итого расходы по подпискам в месяц (в ${baseCurrency}): ${formatCurrency(subscriptionsMonthlyBase, baseCurrency)}.`
-  );
 
   const freeCashFlow = recurringTotals.totalMonthly - subscriptionsMonthlyBase;
   lines.push(
@@ -369,39 +262,10 @@ export async function buildFinancialContextForAi(): Promise<string> {
   );
   lines.push("");
 
-  const distinctRecurringThisMonth = new Set(
-    linkedIncomeMonth
-      .map((t) => t.recurringIncomeId)
-      .filter((id): id is string => id != null)
-  );
-  const distinctSubThisMonth = new Set(
-    linkedSubMonth.map((t) => t.subscriptionId).filter((id): id is string => id != null)
-  );
-  lines.push(
-    "Факт по транзакциям в текущем месяце (привязка recurringIncomeId / subscriptionId):"
-  );
-  for (const r of recurringIncomes) {
-    const received = distinctRecurringThisMonth.has(r.id);
-    lines.push(
-      `  — «${r.name}»: есть транзакция-доход с привязкой к этой записи в текущем месяце: ${received ? "да" : "нет"}`
-    );
-  }
-  for (const s of subscriptions) {
-    const paid = distinctSubThisMonth.has(s.id);
-    lines.push(
-      `  — подписка «${s.name}»: есть транзакция-расход с привязкой к этой записи в текущем месяце: ${paid ? "да" : "нет"}`
-    );
-  }
-  lines.push(
-    `Итог: ожидается доходов по справочнику (активные RecurringIncome): ${recurringIncomes.length}, подтверждено транзакциями с привязкой в этом месяце (уникальных записей): ${distinctRecurringThisMonth.size}.`
-  );
-  lines.push(
-    `Итог: ожидается подписок по справочнику (активные Subscription): ${subscriptions.length}, подтверждено транзакциями с привязкой в этом месяце (уникальных записей): ${distinctSubThisMonth.size}.`
-  );
   lines.push("");
 
-  // ─── C) Обязательства ───────────────────────────────────────────────────────
-  lines.push("=== C) ОБЯЗАТЕЛЬСТВА (долги и кредиты) ===");
+  // ─── Д) Обязательства ───────────────────────────────────────────────────────
+  lines.push("=== Д) ОБЯЗАТЕЛЬСТВА (долги и кредиты) ===");
   let totalDebtBase = 0;
   let weightedRateNumerator = 0;
   let weightedRateDenominator = 0;
@@ -431,8 +295,8 @@ export async function buildFinancialContextForAi(): Promise<string> {
   );
   lines.push("");
 
-  // ─── D) Цели ──────────────────────────────────────────────────────────────
-  lines.push("=== D) ЦЕЛИ ===");
+  // ─── Е) Цели ──────────────────────────────────────────────────────────────
+  lines.push("=== Е) ЦЕЛИ ===");
   for (const g of goalsProgress) {
     const deadline =
       g.targetDate != null
@@ -468,8 +332,8 @@ export async function buildFinancialContextForAi(): Promise<string> {
   }
   lines.push("");
 
-  // ─── E) Запланированные платежи ───────────────────────────────────────────
-  lines.push("=== E) ЗАПЛАНИРОВАННЫЕ ПЛАТЕЖИ (неоплаченные) ===");
+  // ─── Ж) Запланированные платежи ───────────────────────────────────────────
+  lines.push("=== Ж) ЗАПЛАНИРОВАННЫЕ ПЛАТЕЖИ (неоплаченные) ===");
   const overdue: typeof plannedUnpaid = [];
   const within30: typeof plannedUnpaid = [];
   const later: typeof plannedUnpaid = [];
@@ -555,106 +419,20 @@ export async function buildFinancialContextForAi(): Promise<string> {
   );
   lines.push("");
 
-  // ─── H) Расходы по категориям (3 месяца) + I) доходы/расходы по месяцам + J) время и СДП ───
-  const windows = buildThreeMonthWindows(now);
-  const tx3: ThreeMonthTxRow[] = txThreeMonthForAi.map((t) => ({
-    type: t.type,
-    amount: t.amount,
-    currency: t.currency,
-    date: t.date,
-    categoryId: t.categoryId,
-    category: t.category,
-  }));
-
-  lines.push("=== H) РАСХОДЫ ПО КАТЕГОРИЯМ (последние 3 месяца) ===");
-  type CatAgg = { name: string; sums: Record<string, number> };
-  const catMap = new Map<string, CatAgg>();
-  let uncategorizedExpenseCount = 0;
-  let uncategorizedExpenseSumBase = 0;
-
-  for (const row of tx3) {
-    if (row.type !== "expense") continue;
-    const mk = monthKeyForDate(windows, row.date);
-    if (!mk) continue;
-    const inBase = convertAmount(row.amount, row.currency, baseCurrency, rates);
-    if (row.categoryId == null) {
-      uncategorizedExpenseCount += 1;
-      uncategorizedExpenseSumBase += inBase;
-    }
-    const ck = row.categoryId ?? "__uncategorized__";
-    const nm = row.category?.name ?? "Без категории";
-    const cur = catMap.get(ck) ?? { name: nm, sums: {} };
-    if (row.categoryId != null) cur.name = nm;
-    cur.sums[mk] = (cur.sums[mk] ?? 0) + inBase;
-    catMap.set(ck, cur);
-  }
-
-  const rankedCats = [...catMap.entries()]
-    .map(([id, v]) => {
-      let total = 0;
-      for (const w of windows) {
-        total += v.sums[w.key] ?? 0;
-      }
-      return { id, name: v.name, sums: v.sums, total };
-    })
-    .sort((a, b) => b.total - a.total);
-
-  if (rankedCats.length === 0) {
-    lines.push("Нет расходных транзакций за последние 3 календарных месяца.");
+  // ─── З) Транзакции (только агрегаты) ───────────────────────────────────────
+  lines.push("=== З) ТРАНЗАКЦИИ (агрегаты за 3 месяца) ===");
+  if (topExpense90.length === 0) {
+    lines.push("Топ-5 категорий расходов: нет расходных операций за период.");
   } else {
-    lines.push("По категориям (суммы в базовой валюте по месяцам):");
-    for (const row of rankedCats.slice(0, 10)) {
-      const parts = windows.map((w) => {
-        const v = row.sums[w.key] ?? 0;
-        return `${w.labelShort} ${formatCurrency(v, baseCurrency)}`;
-      });
-      const first = row.sums[windows[0].key] ?? 0;
-      const last = row.sums[windows[windows.length - 1].key] ?? 0;
-      let trend = "";
-      if (first > 0) {
-        const pct = ((last - first) / first) * 100;
-        trend =
-          Math.abs(pct) < 0.05
-            ? ""
-            : ` (${pct >= 0 ? "рост" : "снижение"} ${formatPercent(pct)})`;
-      } else if (first <= 0 && last > 0) {
-        trend = " (рост с нуля)";
-      }
-      lines.push(`  — ${row.name}: ${parts.join(", ")}${trend}`);
-    }
+    lines.push("Топ-5 категорий расходов:");
+    topExpense90.forEach((c, i) => {
+      lines.push(`  ${i + 1}. ${c.name}: ${formatCurrency(c.totalInBase, baseCurrency)}`);
+    });
   }
-  lines.push(
-    `Без категории (расходы без categoryId за период): ${uncategorizedExpenseCount} транзакций на сумму ${formatCurrency(uncategorizedExpenseSumBase, baseCurrency)}.`
-  );
-  lines.push("");
-
-  lines.push("=== I) ДОХОДЫ И РАСХОДЫ ПО МЕСЯЦАМ (транзакции, базовая валюта) ===");
-  const incByMonth: Record<string, number> = {};
-  const expByMonth: Record<string, number> = {};
-  for (const w of windows) {
-    incByMonth[w.key] = 0;
-    expByMonth[w.key] = 0;
-  }
-  for (const row of tx3) {
-    const mk = monthKeyForDate(windows, row.date);
-    if (!mk) continue;
-    const v = convertAmount(row.amount, row.currency, baseCurrency, rates);
-    if (row.type === "income") incByMonth[mk] = (incByMonth[mk] ?? 0) + v;
-    if (row.type === "expense") expByMonth[mk] = (expByMonth[mk] ?? 0) + v;
-  }
-  for (const w of windows) {
-    const inc = incByMonth[w.key] ?? 0;
-    const exp = expByMonth[w.key] ?? 0;
-    const saved = inc - exp;
-    const ratePct = inc > 0 ? (saved / inc) * 100 : null;
-    lines.push(
-      `${w.titleLong}: доход ${formatCurrency(inc, baseCurrency)}, расход ${formatCurrency(exp, baseCurrency)}, сохранено ${formatCurrency(saved, baseCurrency)}${
-        ratePct != null && Number.isFinite(ratePct)
-          ? ` (${ratePct.toFixed(1)}%)`
-          : " (норма сбережений не определена — нет доходов в месяце)"
-      }.`
-    );
-  }
+  const avgIncome = tx90.incomeBase / 3;
+  const avgExpense = tx90.expenseBase / 3;
+  lines.push(`Среднемесячный доход (3 мес): ${formatCurrency(avgIncome, baseCurrency)}.`);
+  lines.push(`Среднемесячный расход (3 мес): ${formatCurrency(avgExpense, baseCurrency)}.`);
   lines.push("");
 
   lines.push("=== J) ВРЕМЕННОЙ КОНТЕКСТ И РАСШИРЕННЫЙ СВОБОДНЫЙ ДЕНЕЖНЫЙ ПОТОК ===");
@@ -736,50 +514,319 @@ export async function buildFinancialContextForAi(): Promise<string> {
   );
   lines.push("");
 
-  // ─── F) Активы ──────────────────────────────────────────────────────────────
-  lines.push("=== F) АКТИВЫ (инвестиции и прочее внутри хранилищ) ===");
+  // ─── Г) Инвестиционный портфель ─────────────────────────────────────────────
+  lines.push("=== Г) ИНВЕСТИЦИОННЫЙ ПОРТФЕЛЬ ===");
   let portfolioBase = 0;
+  let stocksBase = 0;
+  let cryptoBase = 0;
+  let otherBase = 0;
   for (const a of assets) {
-    const valNative = assetDisplayValue(a);
-    const valBase = convertAmount(valNative, a.currency, baseCurrency, rates);
+    const nativeValue =
+      a.currentTotalValue != null && Number.isFinite(a.currentTotalValue)
+        ? a.currentTotalValue
+        : a.quantity * (a.currentUnitPrice ?? 0);
+    const valBase = convertAmount(nativeValue, a.currency, baseCurrency, rates);
     portfolioBase += valBase;
-    const typeLabel = ASSET_TYPE_LABELS[a.assetType as AssetType] ?? a.assetType;
-    const qtyDecimals = Number.isInteger(a.quantity) ? 0 : 4;
-    lines.push(
-      `  — «${a.name}» (${typeLabel}), хранилище «${a.vault.name}»: количество ${formatNumber(a.quantity, qtyDecimals)} ${a.unit}, текущая стоимость ${formatCurrency(valNative, a.currency)} (≈ ${formatCurrency(valBase, baseCurrency)})`
-    );
+    if (a.assetType === "stock") stocksBase += valBase;
+    else if (a.assetType === "crypto") cryptoBase += valBase;
+    else otherBase += valBase;
   }
-  if (assets.length === 0) {
-    lines.push("  (активных активов нет)");
-  }
+  lines.push(`Активов всего: ${assets.length} позиций`);
+  lines.push(`Общая стоимость портфеля: ${formatCurrency(portfolioBase, baseCurrency)}`);
   lines.push(
-    `Итого оценка стоимости активного портфеля активов (сумма в ${baseCurrency}): ${formatCurrency(portfolioBase, baseCurrency)}.`
+    `По типам: акции ${formatCurrency(stocksBase, baseCurrency)}, крипта ${formatCurrency(cryptoBase, baseCurrency)}, прочее ${formatCurrency(otherBase, baseCurrency)}`
   );
   lines.push("");
 
-  // ─── G) Транзакционная аналитика 90 дней ───────────────────────────────────
-  lines.push("=== G) ТРАНЗАКЦИОННАЯ АНАЛИТИКА (последние 90 дней) ===");
-  if (topExpense90.length === 0) {
-    lines.push("Топ-5 категорий расходов: нет расходных операций за период.");
-  } else {
-    lines.push("Топ-5 категорий расходов с суммами (в базовой валюте):");
-    topExpense90.forEach((c, i) => {
-      lines.push(`  ${i + 1}. ${c.name}: ${formatCurrency(c.totalInBase, baseCurrency)}`);
+  // ─── K) Финансовые метрики и аномалии ───────────────────────────────────────
+  lines.push("");
+  lines.push("=== К) ФИНАНСОВЫЕ МЕТРИКИ И АНОМАЛИИ ===");
+
+  // 1) Правило 50/30/20
+  try {
+    const needsKeywords = ["продукты", "жкх", "транспорт", "здоровье", "связь", "кредит", "рассрочка"];
+    const wantsKeywords = ["кафе", "рестораны", "развлечения", "подписки", "одежда", "доставка", "такси"];
+    const since30 = new Date();
+    since30.setDate(since30.getDate() - 30);
+    const expense30 = await prisma.transaction.findMany({
+      where: { type: "expense", date: { gte: since30 } },
+      select: {
+        amount: true,
+        currency: true,
+        category: { select: { name: true } },
+      },
     });
+
+    let needsBase = 0;
+    let wantsBase = 0;
+    for (const row of expense30) {
+      const categoryName = (row.category?.name ?? "").toLocaleLowerCase("ru-RU");
+      const valueBase = convertAmount(row.amount, row.currency, baseCurrency, rates);
+      const isWants = wantsKeywords.some((k) => categoryName.includes(k));
+      const isNeeds = needsKeywords.some((k) => categoryName.includes(k));
+      if (isWants) wantsBase += valueBase;
+      else if (isNeeds) needsBase += valueBase;
+      else needsBase += valueBase;
+    }
+    const monthlyIncomeBase = recurringTotals.totalMonthly;
+    if (monthlyIncomeBase > 0) {
+      const needsPct = (needsBase / monthlyIncomeBase) * 100;
+      const wantsPct = (wantsBase / monthlyIncomeBase) * 100;
+      const savingsPct = 100 - needsPct - wantsPct;
+      lines.push(
+        `[50/30/20] Нужды: ${needsPct.toFixed(1)}% (норма 50%), Желания: ${wantsPct.toFixed(1)}% (норма 30%), Накопления: ${savingsPct.toFixed(1)}% (норма 20%)`
+      );
+      const wantsDeviation = wantsPct - 30;
+      if (wantsDeviation > 10) {
+        lines.push(`⚠️ Желания превышают норму на ${wantsDeviation.toFixed(1)}%`);
+      }
+    }
+  } catch {
+    // пропускаем метрику при недостатке данных
   }
-  const avgIncome = tx90.incomeBase / 3;
-  const avgExpense = tx90.expenseBase / 3;
-  lines.push(
-    `Среднемесячный доход по транзакциям за 90 дней (≈ сумма за 90 дней / 3): ${formatCurrency(avgIncome, baseCurrency)}.`
-  );
-  lines.push(
-    `Среднемесячный расход по транзакциям за 90 дней (≈ сумма за 90 дней / 3): ${formatCurrency(avgExpense, baseCurrency)}.`
-  );
-  const savingsRate =
-    tx90.incomeBase > 0 ? ((tx90.incomeBase - tx90.expenseBase) / tx90.incomeBase) * 100 : null;
-  lines.push(
-    `Норма сбережений за период (доходы − расходы) / доходы × 100%: ${savingsRate != null && Number.isFinite(savingsRate) ? `${savingsRate.toFixed(1)}%` : "не определена (нет доходов по транзакциям)"}.`
-  );
+
+  // 2) Подушка безопасности
+  let cushionMonths: number | null = null;
+  try {
+    const liquidBalanceBase = vaultSummaries
+      .filter((v) => v.liquidityLevel === "high")
+      .reduce((sum, v) => sum + v.balanceInBaseCurrency, 0);
+    const avgExpense90 = tx90.expenseBase / 3;
+    if (avgExpense90 > 0) {
+      cushionMonths = liquidBalanceBase / avgExpense90;
+      lines.push(`Подушка безопасности: ${cushionMonths.toFixed(1)} мес (норма 3–6 мес)`);
+      if (cushionMonths < 1) {
+        lines.push("🚨 КРИТИЧНО: подушка менее 1 месяца");
+      } else if (cushionMonths < 3) {
+        lines.push(`⚠️ Подушка недостаточна: ${cushionMonths.toFixed(1)} мес из 3 необходимых`);
+      } else {
+        lines.push(`✅ Подушка в норме: ${cushionMonths.toFixed(1)} мес`);
+      }
+    }
+  } catch {
+    // пропускаем метрику при недостатке данных
+  }
+
+  // 3) Долговая нагрузка
+  let debtServicePct: number | null = null;
+  let debtMinPaymentsMonthlyBase = 0;
+  try {
+    for (const l of liabilities) {
+      const mp = l.minimumPayment ?? 0;
+      debtMinPaymentsMonthlyBase += convertAmount(mp, l.currency, baseCurrency, rates);
+    }
+    const monthlyIncomeBase = recurringTotals.totalMonthly;
+    if (monthlyIncomeBase > 0) {
+      debtServicePct = (debtMinPaymentsMonthlyBase / monthlyIncomeBase) * 100;
+      lines.push(`Долговая нагрузка: ${debtServicePct.toFixed(1)}% от дохода (норма до 30%)`);
+      if (debtServicePct > 40) {
+        lines.push(`🚨 КРИТИЧНО: долговая нагрузка ${debtServicePct.toFixed(1)}%`);
+      } else if (debtServicePct > 30) {
+        lines.push(`⚠️ Долговая нагрузка повышена: ${debtServicePct.toFixed(1)}%`);
+      } else {
+        lines.push(`✅ Долговая нагрузка в норме: ${debtServicePct.toFixed(1)}%`);
+      }
+    }
+  } catch {
+    // пропускаем метрику при недостатке данных
+  }
+
+  // 4) Аномалии расходов по категориям
+  try {
+    const nowDate = new Date();
+    const currentStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1, 0, 0, 0, 0);
+    const previousStart = new Date(nowDate.getFullYear(), nowDate.getMonth() - 1, 1, 0, 0, 0, 0);
+    const previousEnd = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1, 0, 0, 0, 0);
+    const currentRows = await prisma.transaction.findMany({
+      where: {
+        type: "expense",
+        date: { gte: currentStart, lte: nowDate },
+      },
+      select: {
+        amount: true,
+        currency: true,
+        category: { select: { name: true } },
+      },
+    });
+    const previousRows = await prisma.transaction.findMany({
+      where: {
+        type: "expense",
+        date: { gte: previousStart, lt: previousEnd },
+      },
+      select: {
+        amount: true,
+        currency: true,
+        category: { select: { name: true } },
+      },
+    });
+
+    const currentByCat = new Map<string, number>();
+    const previousByCat = new Map<string, number>();
+    for (const row of currentRows) {
+      const category = row.category?.name ?? "Без категории";
+      const v = convertAmount(row.amount, row.currency, baseCurrency, rates);
+      currentByCat.set(category, (currentByCat.get(category) ?? 0) + v);
+    }
+    for (const row of previousRows) {
+      const category = row.category?.name ?? "Без категории";
+      const v = convertAmount(row.amount, row.currency, baseCurrency, rates);
+      previousByCat.set(category, (previousByCat.get(category) ?? 0) + v);
+    }
+
+    const anomalies: Array<{ category: string; growthPct: number; prev: number; curr: number }> = [];
+    for (const [category, curr] of currentByCat.entries()) {
+      const prev = previousByCat.get(category) ?? 0;
+      if (prev <= 0) continue;
+      const growthPct = ((curr - prev) / prev) * 100;
+      if (growthPct > 30) {
+        anomalies.push({ category, growthPct, prev, curr });
+      }
+    }
+    anomalies
+      .sort((a, b) => b.growthPct - a.growthPct)
+      .slice(0, 3)
+      .forEach((a) => {
+        lines.push(
+          `⚠️ [${a.category}]: рост на ${a.growthPct.toFixed(1)}% (было ${formatCurrency(a.prev, baseCurrency)}, стало ${formatCurrency(a.curr, baseCurrency)})`
+        );
+      });
+  } catch {
+    // пропускаем метрику при недостатке данных
+  }
+
+  // 5) Приближающиеся обязательства + кассовый разрыв
+  try {
+    const nowDate = new Date();
+    const in30 = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + 30, 23, 59, 59, 999);
+    const in14 = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + 14, 23, 59, 59, 999);
+    const plannedSoon = await prisma.plannedExpense.findMany({
+      where: {
+        isPaid: false,
+        dueDate: { gte: nowDate, lte: in30 },
+      },
+      select: { name: true, amount: true, currency: true, dueDate: true },
+      orderBy: { dueDate: "asc" },
+      take: 10,
+    });
+    const liabilitiesSoon = await prisma.liability.findMany({
+      where: {
+        isActive: true,
+        nextPaymentDate: { gte: nowDate, lte: in14 },
+      },
+      select: { name: true, minimumPayment: true, currency: true, nextPaymentDate: true },
+      orderBy: { nextPaymentDate: "asc" },
+      take: 10,
+    });
+
+    const DAY_MS_LOCAL = 24 * 60 * 60 * 1000;
+    const toDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    let obligationsBase = 0;
+    for (const p of plannedSoon) {
+      if (!p.dueDate) continue;
+      const days = Math.round((toDay(p.dueDate) - toDay(nowDate)) / DAY_MS_LOCAL);
+      const amountBase = convertAmount(p.amount, p.currency, baseCurrency, rates);
+      obligationsBase += amountBase;
+      lines.push(`⏰ Платёж '${p.name}' через ${days} дней: ${formatCurrency(amountBase, baseCurrency)}`);
+    }
+    for (const l of liabilitiesSoon) {
+      if (!l.nextPaymentDate) continue;
+      const days = Math.round((toDay(l.nextPaymentDate) - toDay(nowDate)) / DAY_MS_LOCAL);
+      const payment = l.minimumPayment ?? 0;
+      const paymentBase = convertAmount(payment, l.currency, baseCurrency, rates);
+      obligationsBase += paymentBase;
+      lines.push(`⏰ Платёж по '${l.name}' через ${days} дней: ${formatCurrency(paymentBase, baseCurrency)}`);
+    }
+
+    const totalBalanceBase = vaultSummaries.reduce((sum, v) => sum + v.balanceInBaseCurrency, 0);
+    if (obligationsBase > 0 && totalBalanceBase < obligationsBase) {
+      lines.push(
+        `🚨 КАССОВЫЙ РАЗРЫВ: обязательства ${formatCurrency(obligationsBase, baseCurrency)}, доступно ${formatCurrency(totalBalanceBase, baseCurrency)}`
+      );
+    }
+  } catch {
+    // пропускаем метрику при недостатке данных
+  }
+
+  // 6) FCF
+  let fcf: number | null = null;
+  try {
+    const monthlyIncomeBase = recurringTotals.totalMonthly;
+    let subscriptionsMonthlyBase = 0;
+    for (const s of subscriptions) {
+      const factor = monthlyFactorSubscription(s.billingPeriod);
+      const monthlyNative = s.amount * factor;
+      subscriptionsMonthlyBase += convertAmount(monthlyNative, s.currency, baseCurrency, rates);
+    }
+    fcf = monthlyIncomeBase - subscriptionsMonthlyBase - debtMinPaymentsMonthlyBase;
+    lines.push(`Свободный денежный поток: ${formatCurrency(fcf, baseCurrency)}/мес`);
+    if (fcf < 0) {
+      lines.push("🚨 FCF отрицательный: расходы превышают доход");
+    }
+  } catch {
+    // пропускаем метрику при недостатке данных
+  }
+
+  // 7) Инвестиционная иерархия
+  try {
+    const highRateDebt = liabilities
+      .filter(
+        (l) =>
+          l.isActive &&
+          l.currentBalance > 0 &&
+          l.interestRate != null &&
+          Number.isFinite(l.interestRate) &&
+          l.interestRate > 10
+      )
+      .sort((a, b) => (b.interestRate ?? 0) - (a.interestRate ?? 0))[0];
+
+    if (cushionMonths != null && cushionMonths < 3) {
+      lines.push("📍 Приоритет: наращивание подушки безопасности");
+    } else if (highRateDebt) {
+      lines.push(
+        `📍 Приоритет: погашение долга '${highRateDebt.name}' (ставка ${(highRateDebt.interestRate ?? 0).toFixed(1)}%)`
+      );
+    } else if (cushionMonths != null && cushionMonths >= 3) {
+      lines.push("📍 Приоритет: можно инвестировать свободный поток");
+    }
+  } catch {
+    // пропускаем метрику при недостатке данных
+  }
+
+  // 8) Отклонения от бюджета категорий
+  try {
+    const spentByCategory = new Map<string, { name: string; spent: number }>();
+    for (const tx of monthExpenseRows) {
+      if (!tx.categoryId) continue;
+      const spent = convertAmount(tx.amount, tx.currency, baseCurrency, rates);
+      const prev = spentByCategory.get(tx.categoryId) ?? {
+        name: tx.category?.name ?? "Без категории",
+        spent: 0,
+      };
+      prev.spent += spent;
+      spentByCategory.set(tx.categoryId, prev);
+    }
+    const deviations = Object.entries(categoryBudgetMap)
+      .map(([categoryId, limit]) => {
+        const row = spentByCategory.get(categoryId);
+        if (!row) return null;
+        const diff = row.spent - limit;
+        return { name: row.name, spent: row.spent, limit, diff };
+      })
+      .filter((x): x is { name: string; spent: number; limit: number; diff: number } => x !== null)
+      .filter((x) => x.diff > 0)
+      .sort((a, b) => b.diff - a.diff)
+      .slice(0, 5);
+    if (deviations.length > 0) {
+      lines.push("Бюджеты категорий (превышение):");
+      deviations.forEach((d) => {
+        lines.push(
+          `⚠️ [Бюджет] ${d.name}: ${formatCurrency(d.spent, baseCurrency)} из ${formatCurrency(d.limit, baseCurrency)} (перерасход ${formatCurrency(d.diff, baseCurrency)})`
+        );
+      });
+    }
+  } catch {
+    // пропускаем метрику при недостатке данных
+  }
 
   return lines.join("\n");
 }

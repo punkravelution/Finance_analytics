@@ -6,11 +6,10 @@ import {
   Cell,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/format";
-import { VAULT_TYPE_LABELS, type VaultType } from "@/types";
+import type { VaultType } from "@/types";
 
 interface VaultData {
   name: string;

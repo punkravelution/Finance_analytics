@@ -32,7 +32,9 @@ export function TransactionCategoryQuickPick({
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
-    setCategoryId(initialCategoryId);
+    queueMicrotask(() => {
+      setCategoryId(initialCategoryId);
+    });
   }, [initialCategoryId, transactionId]);
 
   const filtered = useMemo(

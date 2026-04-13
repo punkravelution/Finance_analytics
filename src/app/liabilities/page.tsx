@@ -16,6 +16,40 @@ const typeLabel: Record<string, string> = {
   other: "Другое",
 };
 
+const EXTRA_PAYMENT_BASE = 10000;
+
+interface PayoffSimulation {
+  months: number | null;
+  interestPaid: number;
+}
+
+function simulateDebtPayoff(balance: number, annualRatePct: number | null, monthlyPayment: number): PayoffSimulation {
+  if (!Number.isFinite(balance) || balance <= 0 || !Number.isFinite(monthlyPayment) || monthlyPayment <= 0) {
+    return { months: null, interestPaid: 0 };
+  }
+  const monthlyRate = annualRatePct != null && Number.isFinite(annualRatePct) ? annualRatePct / 100 / 12 : 0;
+  let remaining = balance;
+  let interestPaid = 0;
+  let months = 0;
+  const maxMonths = 1200;
+
+  while (remaining > 0 && months < maxMonths) {
+    const interestPart = monthlyRate > 0 ? remaining * monthlyRate : 0;
+    const principalPart = monthlyPayment - interestPart;
+    if (principalPart <= 0) {
+      return { months: null, interestPaid };
+    }
+    interestPaid += interestPart;
+    remaining -= principalPart;
+    months += 1;
+  }
+
+  if (remaining > 0) {
+    return { months: null, interestPaid };
+  }
+  return { months, interestPaid };
+}
+
 export default async function LiabilitiesPage() {
   const [liabilities, baseCurrency, rates, stats] = await Promise.all([
     prisma.liability.findMany({
@@ -52,6 +86,40 @@ export default async function LiabilitiesPage() {
 
   const debtShare =
     stats.totalNetWorth > 0 ? (totalDebt / stats.totalNetWorth) * 100 : 0;
+
+  const activeSortedByRate = active
+    .filter((l) => l.interestRate != null && Number.isFinite(l.interestRate))
+    .sort((a, b) => (b.interestRate ?? 0) - (a.interestRate ?? 0));
+  const avalancheTarget = activeSortedByRate[0] ?? null;
+  const snowballTarget =
+    active
+      .slice()
+      .sort(
+        (a, b) =>
+          convertAmount(a.currentBalance, a.currency, baseCurrency, rates) -
+          convertAmount(b.currentBalance, b.currency, baseCurrency, rates)
+      )[0] ?? null;
+
+  const enriched = liabilities.map((l) => {
+    const balanceBase = convertAmount(l.currentBalance, l.currency, baseCurrency, rates);
+    const minPaymentBase = convertAmount(l.minimumPayment ?? 0, l.currency, baseCurrency, rates);
+    const minSim = simulateDebtPayoff(balanceBase, l.interestRate, minPaymentBase);
+    const boostedSim = simulateDebtPayoff(
+      balanceBase,
+      l.interestRate,
+      minPaymentBase + EXTRA_PAYMENT_BASE
+    );
+    const monthsSaved =
+      minSim.months != null && boostedSim.months != null ? minSim.months - boostedSim.months : null;
+    const interestSaved = Math.max(0, minSim.interestPaid - boostedSim.interestPaid);
+    return {
+      ...l,
+      minSim,
+      boostedSim,
+      monthsSaved,
+      interestSaved,
+    };
+  });
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -112,7 +180,7 @@ export default async function LiabilitiesPage() {
       </div>
 
       <div className="space-y-2">
-        {liabilities.map((l) => (
+        {enriched.map((l) => (
           <Link key={l.id} href={`/liabilities/${l.id}/edit`} className="block">
             <Card className="hover:border-[hsl(216,34%,28%)] transition-colors">
               <CardContent className="py-4">
@@ -133,6 +201,26 @@ export default async function LiabilitiesPage() {
                       Следующий платёж: {l.nextPaymentDate ? formatDate(l.nextPaymentDate) : "не задан"}
                       {l.lender ? ` · Кредитор: ${l.lender}` : ""}
                     </p>
+                    <div className="mt-2 rounded-md border border-[hsl(216,34%,17%)] bg-[hsl(222,47%,9%)] p-2 text-xs text-slate-300 space-y-1">
+                      <p>
+                        При минимальных платежах:{" "}
+                        {l.minSim.months == null
+                          ? "срок не определяется (платёж слишком мал)"
+                          : `погасится через ${l.minSim.months} мес, переплата ${formatCurrency(l.minSim.interestPaid, baseCurrency)}`}
+                      </p>
+                      <p>
+                        При +{formatCurrency(EXTRA_PAYMENT_BASE, baseCurrency)}/мес:{" "}
+                        {l.boostedSim.months == null
+                          ? "срок не определяется"
+                          : `погасится через ${l.boostedSim.months} мес${l.monthsSaved != null ? ` (на ${l.monthsSaved} мес быстрее)` : ""}, экономия ${formatCurrency(l.interestSaved, baseCurrency)}`}
+                      </p>
+                      <p>
+                        Рекомендация:{" "}
+                        {avalancheTarget && snowballTarget
+                          ? `лавина — сначала '${avalancheTarget.name}' (${avalancheTarget.interestRate?.toFixed(1)}%); снежный ком — сначала '${snowballTarget.name}'.`
+                          : "недостаточно данных для выбора лавины/снежного кома."}
+                      </p>
+                    </div>
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className="text-white font-semibold tabular-nums">

@@ -21,8 +21,10 @@ export function TransactionNote({ transactionId, initialNote, className }: Trans
 
   useEffect(() => {
     const next = initialNote ?? "";
-    setDisplayNote(next);
-    setDraft(next);
+    queueMicrotask(() => {
+      setDisplayNote(next);
+      setDraft(next);
+    });
     baselineRef.current = next;
   }, [initialNote, transactionId]);
 

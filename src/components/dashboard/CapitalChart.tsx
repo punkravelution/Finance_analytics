@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { formatCurrency, formatDateShort } from "@/lib/format";
+import { formatCurrency } from "@/lib/format";
 
 interface DataPoint {
   date: string;

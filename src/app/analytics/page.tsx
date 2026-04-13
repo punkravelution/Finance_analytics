@@ -380,17 +380,101 @@ async function getScenarioAndInvestmentInsights(baseCurrency: string) {
   };
 }
 
+async function getFinancialHealthcheck(baseCurrency: string) {
+  const rates = await getExchangeRates();
+  const since90 = new Date();
+  since90.setDate(since90.getDate() - 90);
+
+  const [vaults, recurring, subscriptions, liabilities, tx90, goals] = await Promise.all([
+    getVaultSummaries(),
+    prisma.recurringIncome.findMany({
+      where: { isActive: true },
+      select: { amount: true, currency: true, billingPeriod: true },
+    }),
+    prisma.subscription.findMany({
+      where: { isActive: true },
+      select: { amount: true, currency: true, billingPeriod: true },
+    }),
+    prisma.liability.findMany({
+      where: { isActive: true, currentBalance: { gt: 0 } },
+      select: { minimumPayment: true, currency: true },
+    }),
+    prisma.transaction.findMany({
+      where: { date: { gte: since90 }, type: { in: ["income", "expense"] } },
+      select: { type: true, amount: true, currency: true },
+    }),
+    prisma.goal.findMany({
+      where: { isCompleted: false },
+      select: { targetAmount: true, currentAmount: true, currency: true },
+    }),
+  ]);
+
+  const liquidBalance = vaults
+    .filter((v) => v.liquidityLevel === "high")
+    .reduce((sum, v) => sum + v.balanceInBaseCurrency, 0);
+
+  const monthlyIncome = recurring.reduce(
+    (sum, r) => sum + convertAmount(r.amount * monthlyFactor(r.billingPeriod), r.currency, baseCurrency, rates),
+    0
+  );
+  const monthlySubscriptions = subscriptions.reduce(
+    (sum, s) => sum + convertAmount(s.amount * monthlyFactor(s.billingPeriod), s.currency, baseCurrency, rates),
+    0
+  );
+  const monthlyDebtPayments = liabilities.reduce(
+    (sum, l) => sum + convertAmount(l.minimumPayment ?? 0, l.currency, baseCurrency, rates),
+    0
+  );
+
+  let income90 = 0;
+  let expense90 = 0;
+  for (const tx of tx90) {
+    const value = convertAmount(tx.amount, tx.currency, baseCurrency, rates);
+    if (tx.type === "income") income90 += value;
+    else expense90 += value;
+  }
+  const monthlyExpense = expense90 / 3;
+  const cushionMonths = monthlyExpense > 0 ? liquidBalance / monthlyExpense : 0;
+  const debtLoadPct = monthlyIncome > 0 ? (monthlyDebtPayments / monthlyIncome) * 100 : 0;
+  const savingsRatePct = income90 > 0 ? ((income90 - expense90) / income90) * 100 : 0;
+  const fcf = monthlyIncome - monthlySubscriptions - monthlyDebtPayments;
+
+  const goalsNeedTotal = goals.reduce(
+    (sum, g) => sum + convertAmount(Math.max(0, g.targetAmount - g.currentAmount), g.currency, baseCurrency, rates),
+    0
+  );
+  const goalsCoverageMonths = fcf > 0 ? goalsNeedTotal / fcf : null;
+
+  const cushionStatus = cushionMonths >= 3 ? "✅" : cushionMonths >= 1 ? "⚠️" : "❌";
+  const debtStatus = debtLoadPct <= 30 ? "✅" : debtLoadPct <= 40 ? "⚠️" : "❌";
+  const savingsStatus = savingsRatePct >= 20 ? "✅" : savingsRatePct >= 10 ? "⚠️" : "❌";
+
+  return {
+    liquidBalance,
+    monthlyExpense,
+    cushionMonths,
+    cushionStatus,
+    debtLoadPct,
+    debtStatus,
+    savingsRatePct,
+    savingsStatus,
+    fcf,
+    goalsCoverageMonths,
+  };
+}
+
 export default async function AnalyticsPage() {
   const [monthlyData, categoryExpenses, baseCurrency] = await Promise.all([
     getMonthlyData(),
     getCategoryExpenses(),
     getBaseCurrency(),
   ]);
-  const [forecast, alerts, comparisons, scenarioInsights] = await Promise.all([
+  const [forecast, alerts, comparisons, scenarioInsights, healthcheck] = await Promise.all([
     getNextMonthForecast(baseCurrency),
     getAlerts(baseCurrency),
     getPeriodComparisons(baseCurrency),
     getScenarioAndInvestmentInsights(baseCurrency),
+    getFinancialHealthcheck(baseCurrency),
   ]);
 
   const avgIncome =
@@ -495,6 +579,38 @@ export default async function AnalyticsPage() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-5">
+        <Card>
+          <CardHeader>
+            <CardTitle>Финансовый healthcheck</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-slate-300">
+            <p>
+              {healthcheck.cushionStatus} Подушка безопасности:{" "}
+              {healthcheck.cushionMonths.toFixed(1)} мес
+              <span className="text-slate-500"> = ликвидный баланс / средний расход</span>
+            </p>
+            <p>
+              {healthcheck.debtStatus} Долговая нагрузка: {healthcheck.debtLoadPct.toFixed(1)}%
+              <span className="text-slate-500"> = платежи по долгам / доход</span>
+            </p>
+            <p>
+              {healthcheck.savingsStatus} Норма сбережений: {healthcheck.savingsRatePct.toFixed(1)}%
+              <span className="text-slate-500"> = (доход - расход) / доход</span>
+            </p>
+            <p>
+              Свободный поток: <span className="font-semibold text-cyan-400">{formatCurrency(healthcheck.fcf, baseCurrency)}</span>
+              <span className="text-slate-500"> = доход - подписки - мин. платежи</span>
+            </p>
+            <p>
+              Покрытие целей:{" "}
+              {healthcheck.goalsCoverageMonths == null
+                ? "н/д (FCF <= 0)"
+                : `${healthcheck.goalsCoverageMonths.toFixed(1)} мес`}
+              <span className="text-slate-500"> при текущем FCF</span>
+            </p>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Сравнение периодов</CardTitle>

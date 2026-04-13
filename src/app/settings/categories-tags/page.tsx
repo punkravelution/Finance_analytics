@@ -2,11 +2,15 @@ import Link from "next/link";
 import { Tags } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { ClassifiersSettingsClient } from "@/components/settings/ClassifiersSettingsClient";
+import { getBaseCurrency, getExchangeRates, convertAmount } from "@/lib/currency";
+import { getCategoryBudgetMap } from "@/lib/categoryBudgets";
 
 export const dynamic = "force-dynamic";
 
 export default async function CategoriesTagsSettingsPage() {
-  const [categories, tagPresets] = await Promise.all([
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const [categories, tagPresets, baseCurrency, rates, budgetMap, expenseRows] = await Promise.all([
     prisma.category.findMany({
       orderBy: [{ type: "asc" }, { name: "asc" }],
       include: { _count: { select: { transactions: true } } },
@@ -15,7 +19,21 @@ export default async function CategoriesTagsSettingsPage() {
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
+    getBaseCurrency(),
+    getExchangeRates(),
+    getCategoryBudgetMap(),
+    prisma.transaction.findMany({
+      where: { type: "expense", date: { gte: monthStart }, categoryId: { not: null } },
+      select: { categoryId: true, amount: true, currency: true },
+    }),
   ]);
+
+  const spentMap = new Map<string, number>();
+  for (const tx of expenseRows) {
+    if (!tx.categoryId) continue;
+    const baseAmount = convertAmount(tx.amount, tx.currency, baseCurrency, rates);
+    spentMap.set(tx.categoryId, (spentMap.get(tx.categoryId) ?? 0) + baseAmount);
+  }
 
   const categoryRows = categories.map((c) => ({
     id: c.id,
@@ -24,6 +42,8 @@ export default async function CategoriesTagsSettingsPage() {
     color: c.color,
     icon: c.icon,
     transactionCount: c._count.transactions,
+    budgetLimit: budgetMap[c.id] ?? null,
+    spentThisMonth: spentMap.get(c.id) ?? 0,
   }));
 
   return (
@@ -45,7 +65,7 @@ export default async function CategoriesTagsSettingsPage() {
         </p>
       </div>
 
-      <ClassifiersSettingsClient categories={categoryRows} tagPresets={tagPresets} />
+      <ClassifiersSettingsClient categories={categoryRows} tagPresets={tagPresets} baseCurrency={baseCurrency} />
     </div>
   );
 }
