@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { getBaseCurrency } from "@/lib/currency";
 import { executeCapitalSnapshot } from "@/lib/capitalSnapshotJob";
+import { reconcileManualVaultBalancesIfDue } from "@/lib/manualBalanceReconcile";
 import type {
   CapitalGrowthMetrics,
   CapitalHistoryDay,
@@ -117,6 +118,7 @@ function computeGrowthFromHistory(
  */
 export async function tryTakeSnapshot(): Promise<void> {
   try {
+    await reconcileManualVaultBalancesIfDue();
     await executeCapitalSnapshot();
   } catch {
     /* намеренно пусто */
@@ -164,7 +166,10 @@ export async function getCapitalHistory(months: number | "all" = 12): Promise<Ca
   const since = historySinceDate(months);
 
   const snapshots = await prisma.vaultSnapshot.findMany({
-    where: { date: { gte: since } },
+    where: {
+      date: { gte: since },
+      vault: { includeInNetWorth: true },
+    },
     orderBy: [{ date: "asc" }, { vaultId: "asc" }],
     include: { vault: { select: { name: true } } },
   });

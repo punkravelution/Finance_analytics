@@ -142,6 +142,8 @@ export type ImportBankResponseBody = {
   autoLinked: number;
   /** Категория по правилам CategoryRule (после categoryMapper) */
   autoCategorized: number;
+  /** Транзакции без категории после импорта (categoryId === null) */
+  uncategorized: number;
 };
 
 function normalizeNote(note: string): string {
@@ -153,26 +155,33 @@ type TxClient = Prisma.TransactionClient;
 async function existsDuplicateForImport(
   tx: TxClient,
   vaultId: string,
+  resolvedType: ImportResolvedType,
   date: Date,
   amountAbs: number,
   description: string
 ): Promise<boolean> {
   const start = new Date(date);
-  start.setDate(start.getDate() - 1);
-  start.setHours(0, 0, 0, 0);
+  start.setUTCHours(0, 0, 0, 0);
   const end = new Date(date);
-  end.setDate(end.getDate() + 1);
-  end.setHours(23, 59, 59, 999);
+  end.setUTCHours(23, 59, 59, 999);
   const want = normalizeNote(description);
+  const sideWhere =
+    resolvedType === "income"
+      ? ({ toVaultId: vaultId } as const)
+      : resolvedType === "expense"
+        ? ({ fromVaultId: vaultId } as const)
+        : { OR: [{ fromVaultId: vaultId }, { toVaultId: vaultId }] };
   const rows = await tx.transaction.findMany({
     where: {
+      type: resolvedType,
       amount: amountAbs,
       date: { gte: start, lte: end },
-      OR: [{ fromVaultId: vaultId }, { toVaultId: vaultId }],
+      ...sideWhere,
     },
-    select: { note: true },
+    select: { note: true, date: true },
   });
-  return rows.some((r) => normalizeNote(r.note ?? "") === want);
+  const wantedTs = date.getTime();
+  return rows.some((r) => normalizeNote(r.note ?? "") === want && r.date.getTime() === wantedTs);
 }
 
 async function applyManualVaultDelta(tx: TxClient, vaultId: string | null, delta: number): Promise<void> {
@@ -257,7 +266,7 @@ export async function POST(
 ): Promise<NextResponse<ImportBankResponseBody | ImportBankOverlapBody>> {
   const fail = (status: number, errors: string[]) =>
     NextResponse.json(
-      { imported: 0, skipped: 0, duplicates: 0, errors, autoLinked: 0, autoCategorized: 0 },
+      { imported: 0, skipped: 0, duplicates: 0, errors, autoLinked: 0, autoCategorized: 0, uncategorized: 0 },
       { status }
     );
 
@@ -402,6 +411,7 @@ export async function POST(
     let duplicates = 0;
     let autoLinked = 0;
     let autoCategorized = 0;
+    let uncategorized = 0;
     const errors = [...parsed.errors];
 
     /** Импорт может быть длинным (много строк × проверка дубликатов + create); дефолт Prisma 5s не хватает. */
@@ -425,8 +435,16 @@ export async function POST(
         for (let i = 0; i < parsed.transactions.length; i++) {
           const row = parsed.transactions[i];
           const amountAbs = Math.abs(row.amount);
+          const resolvedType = resolveImportType(row, i, classifications);
           if (skipDuplicates) {
-            const dup = await existsDuplicateForImport(tx, vaultId, row.date, amountAbs, row.description);
+            const dup = await existsDuplicateForImport(
+              tx,
+              vaultId,
+              resolvedType,
+              row.date,
+              amountAbs,
+              row.description
+            );
             if (dup) {
               duplicates += 1;
               continue;
@@ -442,7 +460,6 @@ export async function POST(
               ruleIdForMatch = hit.id;
             }
           }
-          const resolvedType = resolveImportType(row, i, classifications);
           const data = buildCreateInput(resolvedType, row, vaultId, categoryId, sessionId);
 
           const created = await tx.transaction.create({ data });
@@ -455,6 +472,9 @@ export async function POST(
               data: { matchCount: { increment: 1 } },
             });
             autoCategorized += 1;
+          }
+          if (!categoryId) {
+            uncategorized += 1;
           }
 
           if (created.type === "income" && created.toVaultId) {
@@ -579,9 +599,10 @@ export async function POST(
       imported,
       skipped,
       duplicates,
-      errors: errors.slice(0, 50),
+      errors,
       autoLinked,
       autoCategorized,
+      uncategorized,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Сбой при импорте.";

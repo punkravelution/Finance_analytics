@@ -4,18 +4,18 @@ import { getVaultBalanceInCurrency, type VaultForBalance } from "@/lib/vaultBala
 
 /**
  * Создаёт дневные снимки баланса по каждому активному хранилищу (в базовой валюте).
- * Пропускает хранилища, для которых снимок за текущие локальные сутки уже есть.
+ * Пропускает хранилища, для которых снимок за текущие UTC-сутки уже есть.
  */
 export async function executeCapitalSnapshot(): Promise<{ created: number; skipped: number }> {
   const [baseCurrency, rates] = await Promise.all([getBaseCurrency(), getExchangeRates()]);
 
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date();
-  endOfDay.setHours(23, 59, 59, 999);
+  const now = new Date();
+  const snapshotDate = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
+  );
 
   const vaults = await prisma.vault.findMany({
-    where: { isActive: true },
+    where: { isActive: true, includeInNetWorth: true },
     include: {
       assets: {
         where: { isActive: true },
@@ -29,17 +29,6 @@ export async function executeCapitalSnapshot(): Promise<{ created: number; skipp
   let skipped = 0;
 
   for (const v of vaults) {
-    const existing = await prisma.vaultSnapshot.findFirst({
-      where: {
-        vaultId: v.id,
-        date: { gte: startOfDay, lte: endOfDay },
-      },
-    });
-    if (existing) {
-      skipped += 1;
-      continue;
-    }
-
     const vaultFor: VaultForBalance = {
       balanceSource: v.balanceSource,
       manualBalance: v.manualBalance,
@@ -52,16 +41,25 @@ export async function executeCapitalSnapshot(): Promise<{ created: number; skipp
 
     const balanceInBase = getVaultBalanceInCurrency(vaultFor, baseCurrency, rates);
 
-    await prisma.vaultSnapshot.create({
-      data: {
-        vaultId: v.id,
-        date: new Date(),
-        balance: balanceInBase,
-        currency: baseCurrency,
-        source: "auto",
-      },
-    });
-    created += 1;
+    try {
+      await prisma.vaultSnapshot.create({
+        data: {
+          vaultId: v.id,
+          date: snapshotDate,
+          balance: balanceInBase,
+          currency: baseCurrency,
+          source: "auto",
+        },
+      });
+      created += 1;
+    } catch (e: unknown) {
+      const code = typeof e === "object" && e !== null && "code" in e ? (e as { code?: string }).code : undefined;
+      if (code === "P2002") {
+        skipped += 1;
+        continue;
+      }
+      throw e;
+    }
   }
 
   return { created, skipped };

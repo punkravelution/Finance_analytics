@@ -9,11 +9,12 @@ import { getVaultBalance, getVaultBalanceInCurrency } from "./vaultBalance";
 import type { DashboardStats, VaultSummary } from "@/types";
 
 // ─── Вспомогательные функции ──────────────────────────────────────────────────
+const STALE_ASSET_PRICE_DAYS = 7;
 
 function currentMonthRange() {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
   return { start, end };
 }
 
@@ -33,7 +34,7 @@ async function fetchActiveVaultsWithAssets() {
     include: {
       assets: {
         where: { isActive: true },
-        select: { currentTotalValue: true, currency: true },
+        select: { currentTotalValue: true, currency: true, lastUpdatedAt: true },
       },
     },
     orderBy: { sortOrder: "asc" },
@@ -151,6 +152,10 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   let spendableBalance = 0;
   let liquidCapital = 0;
   let totalInvestments = 0;
+  let staleAssetPricesCount = 0;
+  let staleAssetPricesOldestUpdatedAt: Date | null = null;
+  let assetsMissingValuationCount = 0;
+  const staleThreshold = new Date(Date.now() - STALE_ASSET_PRICE_DAYS * 24 * 60 * 60 * 1000);
 
   for (const vault of allVaults) {
     const inBase = getVaultBalanceInCurrency(vault, baseCurrency, rates);
@@ -160,6 +165,20 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     if (vault.includeInLiquidCapital) liquidCapital += inBase;
     if (["investment", "crypto", "deposit"].includes(vault.type)) {
       totalInvestments += inBase;
+    }
+
+    for (const asset of vault.assets) {
+      if (asset.currentTotalValue == null) {
+        assetsMissingValuationCount += 1;
+        continue;
+      }
+      const updatedAt = asset.lastUpdatedAt;
+      const isStale = !updatedAt || updatedAt < staleThreshold;
+      if (!isStale) continue;
+      staleAssetPricesCount += 1;
+      if (!staleAssetPricesOldestUpdatedAt || !updatedAt || updatedAt < staleAssetPricesOldestUpdatedAt) {
+        staleAssetPricesOldestUpdatedAt = updatedAt ?? new Date(0);
+      }
     }
   }
 
@@ -192,10 +211,10 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
   const oldSnapshots = await prisma.vaultSnapshot.findMany({
     where: {
-      date: { lte: thirtyDaysAgo },
+      date: { gte: thirtyDaysAgo },
       vault: { isActive: true, includeInNetWorth: true },
     },
-    orderBy: { date: "desc" },
+    orderBy: { date: "asc" },
     distinct: ["vaultId"],
   });
 
@@ -220,6 +239,12 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     netWorthChange,
     netWorthChangePercent,
     currency: baseCurrency,
+    staleAssetPricesCount,
+    staleAssetPricesOldestUpdatedAt:
+      staleAssetPricesOldestUpdatedAt && staleAssetPricesOldestUpdatedAt.getTime() > 0
+        ? staleAssetPricesOldestUpdatedAt.toISOString()
+        : null,
+    assetsMissingValuationCount,
   };
 }
 

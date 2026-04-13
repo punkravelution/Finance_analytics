@@ -4,10 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { SendHorizontal, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  WIDGET_QUICK_QUESTIONS_PRIMARY,
+  WIDGET_QUICK_QUESTIONS_SECONDARY,
+} from "@/lib/assistantQuickQuestions";
 
 type ChatRole = "user" | "assistant";
 
 interface ChatMessage {
+  id: string;
   role: ChatRole;
   content: string;
 }
@@ -43,6 +48,16 @@ export function AiAssistant() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const welcomeSentRef = useRef(false);
   const inFlightRef = useRef<AbortController | null>(null);
+  const nextMessageIdRef = useRef(0);
+
+  const makeMessage = useCallback((role: ChatRole, content: string): ChatMessage => {
+    nextMessageIdRef.current += 1;
+    return {
+      id: `${Date.now()}-${nextMessageIdRef.current}`,
+      role,
+      content,
+    };
+  }, []);
 
   const cancelInFlight = useCallback(() => {
     inFlightRef.current?.abort();
@@ -143,7 +158,6 @@ export function AiAssistant() {
 
   useEffect(() => {
     if (!open || welcomeSentRef.current) return;
-    welcomeSentRef.current = true;
     let cancelled = false;
 
     void (async () => {
@@ -154,7 +168,8 @@ export function AiAssistant() {
           return;
         }
         if (text.trim().length > 0) {
-          setMessages((prev) => [...prev, { role: "assistant", content: text }]);
+          setMessages((prev) => [...prev, makeMessage("assistant", text)]);
+          welcomeSentRef.current = true;
         } else {
           welcomeSentRef.current = false;
         }
@@ -172,41 +187,41 @@ export function AiAssistant() {
       cancelled = true;
       cancelInFlight();
     };
-  }, [open, postChat, cancelInFlight]);
+  }, [open, postChat, cancelInFlight, makeMessage]);
 
   const sendFromInput = useCallback(async () => {
     const text = input.trim();
     if (!text || isStreaming) return;
     setInput("");
-    const userMsg: ChatMessage = { role: "user", content: text };
+    const userMsg = makeMessage("user", text);
     const nextHistory = [...messages, userMsg];
     setMessages(nextHistory);
     try {
       const reply = await postChat(nextHistory, false);
       if (reply.trim().length > 0) {
-        setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+        setMessages((prev) => [...prev, makeMessage("assistant", reply)]);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка отправки.");
     }
-  }, [input, isStreaming, messages, postChat]);
+  }, [input, isStreaming, makeMessage, messages, postChat]);
 
   const sendQuick = useCallback(
     async (text: string) => {
       if (isStreaming) return;
-      const userMsg: ChatMessage = { role: "user", content: text };
+      const userMsg = makeMessage("user", text);
       const nextHistory = [...messages, userMsg];
       setMessages(nextHistory);
       try {
         const reply = await postChat(nextHistory, false);
         if (reply.trim().length > 0) {
-          setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+          setMessages((prev) => [...prev, makeMessage("assistant", reply)]);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Ошибка отправки.");
       }
     },
-    [isStreaming, messages, postChat]
+    [isStreaming, makeMessage, messages, postChat]
   );
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -257,9 +272,9 @@ export function AiAssistant() {
             {messages.length === 0 && !isStreaming && !error && (
               <p className="text-center text-xs text-slate-500">Загрузка контекста…</p>
             )}
-            {messages.map((m, i) => (
+            {messages.map((m) => (
               <div
-                key={`${i}-${m.role}`}
+                key={m.id}
                 className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}
               >
                 <div
@@ -311,13 +326,7 @@ export function AiAssistant() {
             </div>
             <div className="space-y-1.5">
               <div className="grid grid-cols-3 gap-1.5">
-                {(
-                  [
-                    "Как быстрее достичь моих целей?",
-                    "Оптимизируй мои расходы",
-                    "Стратегия погашения долгов",
-                  ] as const
-                ).map((q) => (
+                {WIDGET_QUICK_QUESTIONS_PRIMARY.map((q) => (
                   <button
                     key={q}
                     type="button"
@@ -330,8 +339,7 @@ export function AiAssistant() {
                 ))}
               </div>
               <div className="grid grid-cols-2 gap-1.5">
-                {(["Оцени мой инвестпортфель", "Сколько могу откладывать в месяц?"] as const).map(
-                  (q) => (
+                {WIDGET_QUICK_QUESTIONS_SECONDARY.map((q) => (
                     <button
                       key={q}
                       type="button"
@@ -341,8 +349,7 @@ export function AiAssistant() {
                     >
                       {q}
                     </button>
-                  )
-                )}
+                  ))}
               </div>
             </div>
           </div>

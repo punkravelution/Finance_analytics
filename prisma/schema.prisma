@@ -169,8 +169,8 @@ model Transaction {
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
-  fromVault       Vault?          @relation("TransactionFrom", fields: [fromVaultId], references: [id])
-  toVault         Vault?          @relation("TransactionTo", fields: [toVaultId], references: [id])
+  fromVault       Vault?          @relation("TransactionFrom", fields: [fromVaultId], references: [id], onDelete: Cascade)
+  toVault         Vault?          @relation("TransactionTo", fields: [toVaultId], references: [id], onDelete: Cascade)
   category        Category?       @relation(fields: [categoryId], references: [id])
   importSession   ImportSession?  @relation(fields: [importSessionId], references: [id], onDelete: Cascade)
   recurringIncome RecurringIncome? @relation(fields: [recurringIncomeId], references: [id], onDelete: SetNull)
@@ -183,6 +183,9 @@ model Transaction {
   @@index([subscriptionId])
   @@index([plannedExpenseId])
   @@index([liabilityId])
+  @@index([date, type])
+  @@index([fromVaultId, date])
+  @@index([toVaultId, date])
 }
 
 // ─── Доходное событие (дивиденды, купоны, стейкинг…) ─────────────────────────
@@ -229,6 +232,7 @@ model VaultSnapshot {
   createdAt DateTime @default(now())
 
   vault     Vault    @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  @@unique([vaultId, date])
 }
 
 // ─── Курсы валют ──────────────────────────────────────────────────────────────

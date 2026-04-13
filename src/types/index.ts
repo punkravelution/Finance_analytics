@@ -121,6 +121,9 @@ export interface DashboardStats {
   netWorthChange: number;
   netWorthChangePercent: number;
   currency: string;
+  staleAssetPricesCount: number;
+  staleAssetPricesOldestUpdatedAt: string | null;
+  assetsMissingValuationCount: number;
 }
 
 export interface VaultSummary {

@@ -1,6 +1,6 @@
-import { prisma } from "@/lib/prisma";
+import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 
-type LiabilityDb = Pick<typeof prisma, "liability">;
+type LiabilityDb = Pick<PrismaClient | Prisma.TransactionClient, "liability">;
 
 /** Уменьшение остатка долга при привязке платежа (расход). */
 export async function applyLiabilityPayment(

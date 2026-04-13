@@ -21,13 +21,16 @@ export function DownloadAiReportButton({ className }: DownloadAiReportButtonProp
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `finance-report-${new Date().toISOString().split("T")[0]}.md`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      try {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `finance-report-${new Date().toISOString().split("T")[0]}.md`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } finally {
+        URL.revokeObjectURL(url);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка скачивания отчёта.");
     } finally {

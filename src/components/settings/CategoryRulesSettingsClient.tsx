@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   createCategoryRule,
@@ -42,10 +42,6 @@ interface Props {
 export function CategoryRulesSettingsClient({ initialRules, categories }: Props) {
   const router = useRouter();
   const [rules, setRules] = useState(initialRules);
-
-  useEffect(() => {
-    setRules(initialRules);
-  }, [initialRules]);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);

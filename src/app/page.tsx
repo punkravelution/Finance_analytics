@@ -5,7 +5,7 @@ import {
   BarChart2,
 } from "lucide-react";
 import { getDashboardStats, getVaultSummaries, getRecentTransactions } from "@/lib/analytics";
-import { formatCurrency, formatDateShort, formatPercent } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateShort, formatPercent } from "@/lib/format";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { VaultsList } from "@/components/dashboard/VaultsList";
 import { RecentTransactions } from "@/components/dashboard/RecentTransactions";
@@ -22,7 +22,7 @@ import {
   DashboardPlannedPreview,
 } from "@/components/dashboard/DashboardGoalsAndPlanned";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 export default async function HomePage() {
   const [
@@ -72,6 +72,19 @@ export default async function HomePage() {
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
             Общий капитал · {stats.currency}
           </p>
+          {stats.staleAssetPricesCount > 0 && (
+            <p className="mb-3 rounded-md border border-amber-700/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+              Внимание: {stats.staleAssetPricesCount} актив(ов) имеют устаревшую оценку (старше 7 дней)
+              {stats.staleAssetPricesOldestUpdatedAt
+                ? `, самое старое обновление: ${formatDate(stats.staleAssetPricesOldestUpdatedAt)}`
+                : ", дата обновления не указана"}.
+            </p>
+          )}
+          {stats.assetsMissingValuationCount > 0 && (
+            <p className="mb-3 rounded-md border border-red-800/50 bg-red-950/30 px-3 py-2 text-xs text-red-200">
+              У {stats.assetsMissingValuationCount} актив(ов) не указана текущая стоимость, капитал может быть занижен.
+            </p>
+          )}
           <div className="flex items-end gap-4 flex-wrap">
             <p className="text-4xl font-bold tabular-nums text-white">
               {formatCurrency(stats.totalNetWorth)}

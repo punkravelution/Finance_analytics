@@ -15,6 +15,7 @@ import {
 import { applyLiabilityPayment, revertLiabilityPayment } from "@/lib/liabilityBalance";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import type { Prisma } from "@/generated/prisma/client";
 
 export interface TransactionActionState {
   errors?: {
@@ -26,6 +27,8 @@ export interface TransactionActionState {
     general?: string;
   };
 }
+
+type TxDb = Prisma.TransactionClient;
 
 function parseTagsField(raw: string | undefined): string | null {
   if (raw == null || !raw.trim()) return null;
@@ -91,7 +94,7 @@ function validateTransactionData(data: ReturnType<typeof parseTransactionFormDat
  * Если vault не MANUAL — пропускает без ошибки.
  */
 async function applyBalanceDelta(
-  tx: typeof prisma,
+  tx: TxDb,
   vaultId: string | null,
   delta: number
 ): Promise<void> {
@@ -105,6 +108,21 @@ async function applyBalanceDelta(
       where: { id: vaultId },
       data: { manualBalance: { increment: delta } },
     });
+  }
+}
+
+async function updateTransactionWithGuard(
+  tx: TxDb,
+  id: string,
+  expectedUpdatedAt: Date,
+  data: Prisma.TransactionUpdateInput
+): Promise<void> {
+  const updated = await tx.transaction.updateMany({
+    where: { id, updatedAt: expectedUpdatedAt },
+    data,
+  });
+  if (updated.count !== 1) {
+    throw new Error("Операция была изменена другим запросом. Обновите страницу и повторите попытку.");
   }
 }
 
@@ -177,10 +195,16 @@ export async function createTransaction(
   if (Object.keys(errors).length > 0) return { errors };
 
   // Проверка: запрет операций с ASSETS-хранилищами
-  const [fromErr, toErr] = await Promise.all([
-    checkNotAssetsVault(data.fromVaultId, "Хранилище списания"),
-    checkNotAssetsVault(data.toVaultId, "Хранилище зачисления"),
-  ]);
+  let fromErr: string | null;
+  let toErr: string | null;
+  try {
+    [fromErr, toErr] = await Promise.all([
+      checkNotAssetsVault(data.fromVaultId, "Хранилище списания"),
+      checkNotAssetsVault(data.toVaultId, "Хранилище зачисления"),
+    ]);
+  } catch {
+    return { errors: { general: "Ошибка проверки хранилищ. Попробуйте ещё раз." } };
+  }
   if (fromErr) return { errors: { fromVaultId: fromErr } };
   if (toErr) return { errors: { toVaultId: toErr } };
 
@@ -202,12 +226,12 @@ export async function createTransaction(
 
       // Применяем изменения баланса
       if (data.type === "income") {
-        await applyBalanceDelta(tx as typeof prisma, data.toVaultId, data.amount);
+        await applyBalanceDelta(tx, data.toVaultId, data.amount);
       } else if (data.type === "expense") {
-        await applyBalanceDelta(tx as typeof prisma, data.fromVaultId, -data.amount);
+        await applyBalanceDelta(tx, data.fromVaultId, -data.amount);
       } else if (data.type === "transfer") {
-        await applyBalanceDelta(tx as typeof prisma, data.fromVaultId, -data.amount);
-        await applyBalanceDelta(tx as typeof prisma, data.toVaultId, data.amount);
+        await applyBalanceDelta(tx, data.fromVaultId, -data.amount);
+        await applyBalanceDelta(tx, data.toVaultId, data.amount);
       }
     });
   } catch {
@@ -230,10 +254,16 @@ export async function updateTransaction(
   if (Object.keys(errors).length > 0) return { errors };
 
   // Проверка: запрет операций с ASSETS-хранилищами для новых значений
-  const [fromErr, toErr] = await Promise.all([
-    checkNotAssetsVault(data.fromVaultId, "Хранилище списания"),
-    checkNotAssetsVault(data.toVaultId, "Хранилище зачисления"),
-  ]);
+  let fromErr: string | null;
+  let toErr: string | null;
+  try {
+    [fromErr, toErr] = await Promise.all([
+      checkNotAssetsVault(data.fromVaultId, "Хранилище списания"),
+      checkNotAssetsVault(data.toVaultId, "Хранилище зачисления"),
+    ]);
+  } catch {
+    return { errors: { general: "Ошибка проверки хранилищ. Попробуйте ещё раз." } };
+  }
   if (fromErr) return { errors: { fromVaultId: fromErr } };
   if (toErr) return { errors: { toVaultId: toErr } };
 
@@ -241,41 +271,39 @@ export async function updateTransaction(
     await prisma.$transaction(async (tx) => {
       // Откатываем эффект старой операции
       const old = await tx.transaction.findUnique({ where: { id } });
-      if (old) {
-        if (old.type === "income") {
-          await applyBalanceDelta(tx as typeof prisma, old.toVaultId, -old.amount);
-        } else if (old.type === "expense") {
-          await applyBalanceDelta(tx as typeof prisma, old.fromVaultId, old.amount);
-        } else if (old.type === "transfer") {
-          await applyBalanceDelta(tx as typeof prisma, old.fromVaultId, old.amount);
-          await applyBalanceDelta(tx as typeof prisma, old.toVaultId, -old.amount);
-        }
+      if (!old) {
+        throw new Error("Операция не найдена.");
+      }
+      if (old.type === "income") {
+        await applyBalanceDelta(tx, old.toVaultId, -old.amount);
+      } else if (old.type === "expense") {
+        await applyBalanceDelta(tx, old.fromVaultId, old.amount);
+      } else if (old.type === "transfer") {
+        await applyBalanceDelta(tx, old.fromVaultId, old.amount);
+        await applyBalanceDelta(tx, old.toVaultId, -old.amount);
       }
 
       // Обновляем запись
-      await tx.transaction.update({
-        where: { id },
-        data: {
-          type: data.type,
-          amount: data.amount,
-          date: data.date!,
-          fromVaultId: data.fromVaultId,
-          toVaultId: data.toVaultId,
-          categoryId: data.categoryId,
-          note: data.note,
-          tags: data.tags,
-          currency: data.currency,
-        },
+      await updateTransactionWithGuard(tx, id, old.updatedAt, {
+        type: data.type,
+        amount: data.amount,
+        date: data.date!,
+        fromVault: data.fromVaultId ? { connect: { id: data.fromVaultId } } : { disconnect: true },
+        toVault: data.toVaultId ? { connect: { id: data.toVaultId } } : { disconnect: true },
+        category: data.categoryId ? { connect: { id: data.categoryId } } : { disconnect: true },
+        note: data.note,
+        tags: data.tags,
+        currency: data.currency,
       });
 
       // Применяем эффект новой операции
       if (data.type === "income") {
-        await applyBalanceDelta(tx as typeof prisma, data.toVaultId, data.amount);
+        await applyBalanceDelta(tx, data.toVaultId, data.amount);
       } else if (data.type === "expense") {
-        await applyBalanceDelta(tx as typeof prisma, data.fromVaultId, -data.amount);
+        await applyBalanceDelta(tx, data.fromVaultId, -data.amount);
       } else if (data.type === "transfer") {
-        await applyBalanceDelta(tx as typeof prisma, data.fromVaultId, -data.amount);
-        await applyBalanceDelta(tx as typeof prisma, data.toVaultId, data.amount);
+        await applyBalanceDelta(tx, data.fromVaultId, -data.amount);
+        await applyBalanceDelta(tx, data.toVaultId, data.amount);
       }
     });
   } catch {
@@ -290,12 +318,14 @@ export async function updateTransaction(
 
 export type LinkTransactionResult = { ok: true } | { ok: false; error: string };
 
-/** Если к запланированному платежу не привязано ни одной операции — снимаем isPaid. */
-async function syncPlannedExpensePaidFromLinkCount(plannedExpenseId: string | null | undefined): Promise<void> {
+async function syncPlannedExpensePaidFromLinkCountTx(
+  tx: TxDb,
+  plannedExpenseId: string | null | undefined
+): Promise<void> {
   if (!plannedExpenseId) return;
-  const n = await prisma.transaction.count({ where: { plannedExpenseId } });
+  const n = await tx.transaction.count({ where: { plannedExpenseId } });
   if (n === 0) {
-    await prisma.plannedExpense.update({
+    await tx.plannedExpense.update({
       where: { id: plannedExpenseId },
       data: { isPaid: false },
     });
@@ -307,35 +337,34 @@ export async function linkTransactionToRecurring(
   recurringIncomeId: string
 ): Promise<LinkTransactionResult> {
   try {
-    const [txRow, inc] = await Promise.all([
-      prisma.transaction.findUnique({ where: { id: transactionId } }),
-      prisma.recurringIncome.findUnique({ where: { id: recurringIncomeId } }),
-    ]);
-    if (!txRow) return { ok: false, error: "Операция не найдена." };
-    if (txRow.type !== "income" || !txRow.toVaultId) {
-      return { ok: false, error: "Можно привязать только доход к регулярному поступлению." };
-    }
-    if (!inc || !inc.isActive) return { ok: false, error: "Регулярный доход не найден или неактивен." };
-    if (txRow.toVaultId !== inc.vaultId) {
-      return { ok: false, error: "Хранилище операции должно совпадать с хранилищем дохода." };
-    }
-    const prevPlanned = txRow.plannedExpenseId;
-    if (txRow.liabilityId) {
-      await revertLiabilityPayment(prisma, txRow.liabilityId, txRow.amount, txRow.currency);
-    }
-    await prisma.transaction.update({
-      where: { id: transactionId },
-      data: {
-        recurringIncomeId,
-        subscriptionId: null,
-        plannedExpenseId: null,
-        liabilityId: null,
+    await prisma.$transaction(async (db) => {
+      const [txRow, inc] = await Promise.all([
+        db.transaction.findUnique({ where: { id: transactionId } }),
+        db.recurringIncome.findUnique({ where: { id: recurringIncomeId } }),
+      ]);
+      if (!txRow) throw new Error("Операция не найдена.");
+      if (txRow.type !== "income" || !txRow.toVaultId) {
+        throw new Error("Можно привязать только доход к регулярному поступлению.");
+      }
+      if (!inc || !inc.isActive) throw new Error("Регулярный доход не найден или неактивен.");
+      if (txRow.toVaultId !== inc.vaultId) {
+        throw new Error("Хранилище операции должно совпадать с хранилищем дохода.");
+      }
+      const prevPlanned = txRow.plannedExpenseId;
+      if (txRow.liabilityId) {
+        await revertLiabilityPayment(db, txRow.liabilityId, txRow.amount, txRow.currency);
+      }
+      await updateTransactionWithGuard(db, transactionId, txRow.updatedAt, {
+        recurringIncome: { connect: { id: recurringIncomeId } },
+        subscription: { disconnect: true },
+        plannedExpense: { disconnect: true },
+        liability: { disconnect: true },
         tags: mergeRecurringIncomeLinkTag(
           stripLiabilityLinkTag(stripPlannedExpenseLinkTag(stripSubscriptionLinkTag(txRow.tags)))
         ),
-      },
+      });
+      await syncPlannedExpensePaidFromLinkCountTx(db, prevPlanned);
     });
-    await syncPlannedExpensePaidFromLinkCount(prevPlanned);
     revalidatePath("/transactions");
     revalidatePath("/goals");
     revalidatePath("/liabilities");
@@ -350,35 +379,34 @@ export async function linkTransactionToSubscription(
   subscriptionId: string
 ): Promise<LinkTransactionResult> {
   try {
-    const [txRow, sub] = await Promise.all([
-      prisma.transaction.findUnique({ where: { id: transactionId } }),
-      prisma.subscription.findUnique({ where: { id: subscriptionId } }),
-    ]);
-    if (!txRow) return { ok: false, error: "Операция не найдена." };
-    if (txRow.type !== "expense" || !txRow.fromVaultId) {
-      return { ok: false, error: "Можно привязать только расход к подписке." };
-    }
-    if (!sub || !sub.isActive) return { ok: false, error: "Подписка не найдена или неактивна." };
-    if (txRow.fromVaultId !== sub.vaultId) {
-      return { ok: false, error: "Хранилище операции должно совпадать с хранилищем подписки." };
-    }
-    const prevPlanned = txRow.plannedExpenseId;
-    if (txRow.liabilityId) {
-      await revertLiabilityPayment(prisma, txRow.liabilityId, txRow.amount, txRow.currency);
-    }
-    await prisma.transaction.update({
-      where: { id: transactionId },
-      data: {
-        subscriptionId,
-        recurringIncomeId: null,
-        plannedExpenseId: null,
-        liabilityId: null,
+    await prisma.$transaction(async (db) => {
+      const [txRow, sub] = await Promise.all([
+        db.transaction.findUnique({ where: { id: transactionId } }),
+        db.subscription.findUnique({ where: { id: subscriptionId } }),
+      ]);
+      if (!txRow) throw new Error("Операция не найдена.");
+      if (txRow.type !== "expense" || !txRow.fromVaultId) {
+        throw new Error("Можно привязать только расход к подписке.");
+      }
+      if (!sub || !sub.isActive) throw new Error("Подписка не найдена или неактивна.");
+      if (txRow.fromVaultId !== sub.vaultId) {
+        throw new Error("Хранилище операции должно совпадать с хранилищем подписки.");
+      }
+      const prevPlanned = txRow.plannedExpenseId;
+      if (txRow.liabilityId) {
+        await revertLiabilityPayment(db, txRow.liabilityId, txRow.amount, txRow.currency);
+      }
+      await updateTransactionWithGuard(db, transactionId, txRow.updatedAt, {
+        subscription: { connect: { id: subscriptionId } },
+        recurringIncome: { disconnect: true },
+        plannedExpense: { disconnect: true },
+        liability: { disconnect: true },
         tags: mergeSubscriptionLinkTag(
           stripLiabilityLinkTag(stripPlannedExpenseLinkTag(txRow.tags))
         ),
-      },
+      });
+      await syncPlannedExpensePaidFromLinkCountTx(db, prevPlanned);
     });
-    await syncPlannedExpensePaidFromLinkCount(prevPlanned);
     revalidatePath("/transactions");
     revalidatePath("/goals");
     revalidatePath("/liabilities");
@@ -393,36 +421,32 @@ export async function linkTransactionToPlanned(
   plannedExpenseId: string
 ): Promise<LinkTransactionResult> {
   try {
-    const [txRow, planned] = await Promise.all([
-      prisma.transaction.findUnique({ where: { id: transactionId } }),
-      prisma.plannedExpense.findUnique({ where: { id: plannedExpenseId } }),
-    ]);
-    if (!txRow) return { ok: false, error: "Операция не найдена." };
-    if (txRow.type !== "expense" || !txRow.fromVaultId) {
-      return { ok: false, error: "Можно привязать только расход к запланированному платежу." };
-    }
-    if (!planned) return { ok: false, error: "Запланированный платёж не найден." };
-    if (planned.vaultId != null && planned.vaultId !== txRow.fromVaultId) {
-      return { ok: false, error: "Хранилище операции должно совпадать с хранилищем плана." };
-    }
-
-    const prevPlanned = txRow.plannedExpenseId;
-
     await prisma.$transaction(async (db) => {
+      const [txRow, planned] = await Promise.all([
+        db.transaction.findUnique({ where: { id: transactionId } }),
+        db.plannedExpense.findUnique({ where: { id: plannedExpenseId } }),
+      ]);
+      if (!txRow) throw new Error("Операция не найдена.");
+      if (txRow.type !== "expense" || !txRow.fromVaultId) {
+        throw new Error("Можно привязать только расход к запланированному платежу.");
+      }
+      if (!planned) throw new Error("Запланированный платёж не найден.");
+      if (planned.vaultId != null && planned.vaultId !== txRow.fromVaultId) {
+        throw new Error("Хранилище операции должно совпадать с хранилищем плана.");
+      }
+      const prevPlanned = txRow.plannedExpenseId;
+
       if (txRow.liabilityId) {
         await revertLiabilityPayment(db, txRow.liabilityId, txRow.amount, txRow.currency);
       }
-      await db.transaction.update({
-        where: { id: transactionId },
-        data: {
-          plannedExpenseId,
-          subscriptionId: null,
-          recurringIncomeId: null,
-          liabilityId: null,
-          tags: mergePlannedExpenseLinkTag(
-            stripLiabilityLinkTag(stripSubscriptionLinkTag(txRow.tags))
-          ),
-        },
+      await updateTransactionWithGuard(db, transactionId, txRow.updatedAt, {
+        plannedExpense: { connect: { id: plannedExpenseId } },
+        subscription: { disconnect: true },
+        recurringIncome: { disconnect: true },
+        liability: { disconnect: true },
+        tags: mergePlannedExpenseLinkTag(
+          stripLiabilityLinkTag(stripSubscriptionLinkTag(txRow.tags))
+        ),
       });
       await db.plannedExpense.update({
         where: { id: plannedExpenseId },
@@ -453,36 +477,32 @@ export async function linkTransactionToLiability(
   liabilityId: string
 ): Promise<LinkTransactionResult> {
   try {
-    const [txRow, liab] = await Promise.all([
-      prisma.transaction.findUnique({ where: { id: transactionId } }),
-      prisma.liability.findUnique({ where: { id: liabilityId } }),
-    ]);
-    if (!txRow) return { ok: false, error: "Операция не найдена." };
-    if (txRow.type !== "expense" || !txRow.fromVaultId) {
-      return { ok: false, error: "Можно привязать только расход к долгу." };
-    }
-    if (!liab || !liab.isActive) return { ok: false, error: "Обязательство не найдено или неактивно." };
-    if (liab.currency.trim().toUpperCase() !== txRow.currency.trim().toUpperCase()) {
-      return { ok: false, error: "Валюта операции должна совпадать с валютой долга." };
-    }
-
-    const prevL = txRow.liabilityId;
-
     await prisma.$transaction(async (db) => {
+      const [txRow, liab] = await Promise.all([
+        db.transaction.findUnique({ where: { id: transactionId } }),
+        db.liability.findUnique({ where: { id: liabilityId } }),
+      ]);
+      if (!txRow) throw new Error("Операция не найдена.");
+      if (txRow.type !== "expense" || !txRow.fromVaultId) {
+        throw new Error("Можно привязать только расход к долгу.");
+      }
+      if (!liab || !liab.isActive) throw new Error("Обязательство не найдено или неактивно.");
+      if (liab.currency.trim().toUpperCase() !== txRow.currency.trim().toUpperCase()) {
+        throw new Error("Валюта операции должна совпадать с валютой долга.");
+      }
+      const prevL = txRow.liabilityId;
+
       if (prevL && prevL !== liabilityId) {
         await revertLiabilityPayment(db, prevL, txRow.amount, txRow.currency);
       }
-      await db.transaction.update({
-        where: { id: transactionId },
-        data: {
-          liabilityId,
-          subscriptionId: null,
-          plannedExpenseId: null,
-          recurringIncomeId: null,
-          tags: mergeLiabilityLinkTag(
-            stripPlannedExpenseLinkTag(stripSubscriptionLinkTag(txRow.tags))
-          ),
-        },
+      await updateTransactionWithGuard(db, transactionId, txRow.updatedAt, {
+        liability: { connect: { id: liabilityId } },
+        subscription: { disconnect: true },
+        plannedExpense: { disconnect: true },
+        recurringIncome: { disconnect: true },
+        tags: mergeLiabilityLinkTag(
+          stripPlannedExpenseLinkTag(stripSubscriptionLinkTag(txRow.tags))
+        ),
       });
       if (!prevL || prevL !== liabilityId) {
         await applyLiabilityPayment(db, liabilityId, txRow.amount, txRow.currency);
@@ -499,29 +519,28 @@ export async function linkTransactionToLiability(
 
 export async function unlinkTransaction(id: string): Promise<LinkTransactionResult> {
   try {
-    const row = await prisma.transaction.findUnique({ where: { id } });
-    if (!row) return { ok: false, error: "Операция не найдена." };
-    const prevPlanned = row.plannedExpenseId;
-    const prevLiability = row.liabilityId;
-    let tags = row.tags;
-    tags = stripSubscriptionLinkTag(tags);
-    tags = stripRecurringIncomeLinkTag(tags);
-    tags = stripPlannedExpenseLinkTag(tags);
-    tags = stripLiabilityLinkTag(tags);
-    if (prevLiability) {
-      await revertLiabilityPayment(prisma, prevLiability, row.amount, row.currency);
-    }
-    await prisma.transaction.update({
-      where: { id },
-      data: {
-        recurringIncomeId: null,
-        subscriptionId: null,
-        plannedExpenseId: null,
-        liabilityId: null,
+    await prisma.$transaction(async (db) => {
+      const row = await db.transaction.findUnique({ where: { id } });
+      if (!row) throw new Error("Операция не найдена.");
+      const prevPlanned = row.plannedExpenseId;
+      const prevLiability = row.liabilityId;
+      let tags = row.tags;
+      tags = stripSubscriptionLinkTag(tags);
+      tags = stripRecurringIncomeLinkTag(tags);
+      tags = stripPlannedExpenseLinkTag(tags);
+      tags = stripLiabilityLinkTag(tags);
+      if (prevLiability) {
+        await revertLiabilityPayment(db, prevLiability, row.amount, row.currency);
+      }
+      await updateTransactionWithGuard(db, id, row.updatedAt, {
+        recurringIncome: { disconnect: true },
+        subscription: { disconnect: true },
+        plannedExpense: { disconnect: true },
+        liability: { disconnect: true },
         tags,
-      },
+      });
+      await syncPlannedExpensePaidFromLinkCountTx(db, prevPlanned);
     });
-    await syncPlannedExpensePaidFromLinkCount(prevPlanned);
     revalidatePath("/transactions");
     revalidatePath("/goals");
     revalidatePath("/liabilities");
@@ -542,12 +561,12 @@ export async function deleteTransaction(id: string): Promise<void> {
       }
       // Откатываем эффект операции
       if (old.type === "income") {
-        await applyBalanceDelta(tx as typeof prisma, old.toVaultId, -old.amount);
+        await applyBalanceDelta(tx, old.toVaultId, -old.amount);
       } else if (old.type === "expense") {
-        await applyBalanceDelta(tx as typeof prisma, old.fromVaultId, old.amount);
+        await applyBalanceDelta(tx, old.fromVaultId, old.amount);
       } else if (old.type === "transfer") {
-        await applyBalanceDelta(tx as typeof prisma, old.fromVaultId, old.amount);
-        await applyBalanceDelta(tx as typeof prisma, old.toVaultId, -old.amount);
+        await applyBalanceDelta(tx, old.fromVaultId, old.amount);
+        await applyBalanceDelta(tx, old.toVaultId, -old.amount);
       }
     }
     await tx.transaction.delete({ where: { id } });

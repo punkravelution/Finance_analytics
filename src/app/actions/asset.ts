@@ -189,6 +189,7 @@ export async function updateAsset(
 export async function deleteAsset(id: string): Promise<void> {
   await prisma.asset.update({ where: { id }, data: { isActive: false } });
   revalidatePath("/assets");
+  revalidatePath(`/assets/${id}`);
   redirect("/assets");
 }
 
@@ -199,6 +200,7 @@ export async function permanentlyDeleteAsset(id: string): Promise<void> {
     await tx.asset.delete({ where: { id } });
   });
   revalidatePath("/assets");
+  revalidatePath(`/assets/${id}`);
   redirect("/assets");
 }
 

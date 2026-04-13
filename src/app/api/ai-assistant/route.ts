@@ -9,10 +9,11 @@ export const dynamic = "force-dynamic";
 
 const MODEL = "llama-3.3-70b-versatile" as const;
 
-const CONTEXT_LENGTH_SOFT_LIMIT = 12_000;
-const CONTEXT_SECTION_TRUNCATE_CHARS = 2_000;
+const CONTEXT_LENGTH_SOFT_LIMIT = 8_000;
+const CONTEXT_SECTION_TRUNCATE_CHARS = 1_100;
 const SECTION_F_MARKER = "=== F) АКТИВЫ (инвестиции и прочее внутри хранилищ) ===";
 const SECTION_G_MARKER = "=== G) ТРАНЗАКЦИОННАЯ АНАЛИТИКА (последние 90 дней) ===";
+const SECTION_H_MARKER = "=== H) РАСХОДЫ ПО КАТЕГОРИЯМ (последние 3 месяца) ===";
 const CONTEXT_TRUNCATION_NOTE = "[контекст сокращён из-за большого объёма данных]";
 
 /**
@@ -25,15 +26,18 @@ function applyContextLengthLimit(rawContext: string): string {
   }
   const idxF = rawContext.indexOf(SECTION_F_MARKER);
   const idxG = rawContext.indexOf(SECTION_G_MARKER);
+  const idxH = rawContext.indexOf(SECTION_H_MARKER);
   if (idxF === -1 || idxG === -1 || idxG <= idxF) {
     return `${rawContext.slice(0, CONTEXT_LENGTH_SOFT_LIMIT)}\n${CONTEXT_TRUNCATION_NOTE}`;
   }
   const prefix = rawContext.slice(0, idxF);
   const blockF = rawContext.slice(idxF, idxG);
-  const blockG = rawContext.slice(idxG);
+  const blockG = idxH > idxG ? rawContext.slice(idxG, idxH) : rawContext.slice(idxG);
+  const blockTail = idxH > idxG ? rawContext.slice(idxH) : "";
   const truncatedF = blockF.slice(0, CONTEXT_SECTION_TRUNCATE_CHARS);
   const truncatedG = blockG.slice(0, CONTEXT_SECTION_TRUNCATE_CHARS);
-  return `${prefix}${truncatedF}${truncatedG}\n${CONTEXT_TRUNCATION_NOTE}`;
+  const truncatedTail = blockTail.slice(0, Math.floor(CONTEXT_SECTION_TRUNCATE_CHARS * 0.8));
+  return `${prefix}${truncatedF}${truncatedG}${truncatedTail}\n${CONTEXT_TRUNCATION_NOTE}`;
 }
 
 const BOOTSTRAP_USER_MESSAGE =

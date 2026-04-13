@@ -26,20 +26,15 @@ import {
   type StructuredChartType,
 } from "@/lib/assistantStructuredPayload";
 import { DownloadAiReportButton } from "@/components/export/DownloadAiReportButton";
+import { ASSISTANT_QUICK_QUESTIONS } from "@/lib/assistantQuickQuestions";
 
 type ChatRole = "user" | "assistant";
 
 interface ChatMessage {
+  id: string;
   role: ChatRole;
   content: string;
 }
-
-const QUICK_QUESTIONS = [
-  "Оцени моё финансовое состояние",
-  "Как быстрее достичь целей?",
-  "Оптимизируй мои расходы",
-  "Стратегия погашения долгов",
-] as const;
 
 const ANALYTICAL_RE = /расход|доход|цель|долг|капитал|портфель|анализ|оптимиз/i;
 
@@ -208,6 +203,16 @@ export function AssistantPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inFlightRef = useRef<AbortController | null>(null);
+  const nextMessageIdRef = useRef(0);
+
+  const makeMessage = useCallback((role: ChatRole, content: string): ChatMessage => {
+    nextMessageIdRef.current += 1;
+    return {
+      id: `${Date.now()}-${nextMessageIdRef.current}`,
+      role,
+      content,
+    };
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -252,6 +257,9 @@ export function AssistantPage() {
       if (!isRecord(json)) {
         throw new Error("Некорректный ответ сервера.");
       }
+      if (!("structured" in json)) {
+        throw new Error("Ответ сервера не содержит structured payload.");
+      }
       const structuredRaw = json.structured;
       const parsed = parseStructuredAssistantPayload(structuredRaw);
       if (!parsed) {
@@ -267,7 +275,7 @@ export function AssistantPage() {
       const trimmed = text.trim();
       if (!trimmed || loading) return;
 
-      const userMsg: ChatMessage = { role: "user", content: trimmed };
+      const userMsg = makeMessage("user", trimmed);
       const historyForRequest = [...messages, userMsg];
       const includeContext = shouldIncludeContext(trimmed, messages);
 
@@ -279,7 +287,7 @@ export function AssistantPage() {
       try {
         const payload = await postStructured(historyForRequest, includeContext);
         const md = structuredPayloadToMarkdown(payload);
-        setMessages((prev) => [...prev, { role: "assistant", content: md }]);
+        setMessages((prev) => [...prev, makeMessage("assistant", md)]);
         setLastStructured(payload);
       } catch (e) {
         setMessages((prev) => prev.slice(0, -1));
@@ -288,7 +296,7 @@ export function AssistantPage() {
         setLoading(false);
       }
     },
-    [loading, messages, postStructured]
+    [loading, makeMessage, messages, postStructured]
   );
 
   const onQuickQuestion = useCallback(
@@ -335,9 +343,9 @@ export function AssistantPage() {
               </div>
             )}
 
-            {messages.map((m, i) => (
+            {messages.map((m) => (
               <div
-                key={`${i}-${m.role}-${m.content.slice(0, 24)}`}
+                key={m.id}
                 className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}
               >
                 <div
@@ -372,7 +380,7 @@ export function AssistantPage() {
               <div className="space-y-2">
                 <p className="text-xs text-slate-500">Быстрые вопросы:</p>
                 <div className="flex flex-col gap-2">
-                  {QUICK_QUESTIONS.map((q) => (
+                  {ASSISTANT_QUICK_QUESTIONS.map((q) => (
                     <button
                       key={q}
                       type="button"

@@ -11,7 +11,6 @@ export async function updateExchangeRates(): Promise<number> {
   }
 
   let updatedCount = 0;
-  const managedPairs: Array<{ fromCurrency: string; toCurrency: string }> = [];
 
   const saveRate = async (fromCurrency: string, toCurrency: string, value: number) => {
     const existing = await prisma.exchangeRate.findFirst({
@@ -46,20 +45,8 @@ export async function updateExchangeRates(): Promise<number> {
     const rubPerOne = rate.value / rate.nominal;
     const inverse = 1 / rubPerOne;
 
-    managedPairs.push({ fromCurrency: rate.code, toCurrency: "RUB" });
-    managedPairs.push({ fromCurrency: "RUB", toCurrency: rate.code });
-
     await saveRate(rate.code, "RUB", rubPerOne);
     await saveRate("RUB", rate.code, inverse);
-  }
-
-  if (managedPairs.length > 0) {
-    await prisma.exchangeRate.deleteMany({
-      where: {
-        source: { not: "cbr" },
-        OR: managedPairs,
-      },
-    });
   }
 
   return updatedCount;

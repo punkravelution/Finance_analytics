@@ -31,6 +31,8 @@ interface ImportBankResult {
   autoLinked: number;
   /** Категория по правилам паттернов */
   autoCategorized: number;
+  /** Транзакции без категории */
+  uncategorized: number;
 }
 
 function isOverlapResponse(v: unknown): v is ImportBankOverlapBody {
@@ -49,6 +51,7 @@ function isSuccessImportResult(v: unknown): v is ImportBankResult {
     typeof o.imported === "number" &&
     typeof o.autoLinked === "number" &&
     typeof o.autoCategorized === "number" &&
+    typeof o.uncategorized === "number" &&
     Array.isArray(o.errors) &&
     !("warning" in o && o.warning === "overlap")
   );
@@ -73,6 +76,7 @@ interface BankImportFormProps {
 }
 
 type TbankFileFormat = "csv" | "pdf" | null;
+type ClassificationMap = Record<number, TransferRuleType>;
 
 function parseTbankPreview(buffer: ArrayBuffer): { rows: ParsedTransaction[]; errors: string[] } {
   const r = parseTbankCsv(buffer);
@@ -149,9 +153,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
   );
   const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
   const [wizardStep, setWizardStep] = useState<"preview" | "classify">("preview");
-  const [classificationMap, setClassificationMap] = useState<Map<number, TransferRuleType>>(
-    () => new Map()
-  );
+  const [classificationMap, setClassificationMap] = useState<ClassificationMap>({});
   const [storedRules, setStoredRules] = useState<TransferRuleMap>({});
   const [overlapPrompt, setOverlapPrompt] = useState<ImportBankOverlapBody | null>(null);
   const tbankFileFormat = detectTbankFileFormat(file);
@@ -175,6 +177,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
       setPdfPreviewLoading(false);
       return;
     }
+    if (!file) return;
     let cancelled = false;
     setPdfPreviewLoading(true);
     const fd = new FormData();
@@ -256,7 +259,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
       }
       setFile(f);
       setWizardStep("preview");
-      setClassificationMap(new Map());
+      setClassificationMap({});
       setOverlapPrompt(null);
       try {
         const buf = await f.arrayBuffer();
@@ -280,19 +283,15 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
   );
 
   const buildClassificationsPayload = useCallback((): Record<number, TransferRuleType> => {
-    const out: Record<number, TransferRuleType> = {};
-    classificationMap.forEach((v, k) => {
-      out[k] = v;
-    });
-    return out;
+    return { ...classificationMap };
   }, [classificationMap]);
 
   const goToClassification = useCallback(() => {
-    const next = new Map<number, TransferRuleType>();
+    const next: ClassificationMap = {};
     preview.rows.forEach((row, i) => {
       if (!row.needsClassification) return;
       const fromRule = matchRuleForDescription(row.description, storedRules);
-      next.set(i, fromRule ?? defaultTransferType(row));
+      next[i] = fromRule ?? defaultTransferType(row);
     });
     setClassificationMap(next);
     setWizardStep("classify");
@@ -300,9 +299,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
 
   const setClassificationAt = useCallback((index: number, row: ParsedTransaction, type: TransferRuleType) => {
     setClassificationMap((prev) => {
-      const m = new Map(prev);
-      m.set(index, type);
-      return m;
+      return { ...prev, [index]: type };
     });
     const keyword = row.description.trim();
     if (keyword.length > 0) {
@@ -320,13 +317,13 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
       if (!row?.needsClassification) return;
       const key = normalizeDescGroup(row.description);
       setClassificationMap((prev) => {
-        const m = new Map(prev);
+        const next: ClassificationMap = { ...prev };
         preview.rows.forEach((r, i) => {
           if (r.needsClassification && normalizeDescGroup(r.description) === key) {
-            m.set(i, type);
+            next[i] = type;
           }
         });
-        return m;
+        return next;
       });
       const keyword = row.description.trim();
       if (keyword.length > 0) {
@@ -376,7 +373,8 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
 
       if (!res.ok || !isSuccessImportResult(json)) {
         const err = isErrorShape(json) ? json : null;
-        setClientError(err?.errors[0] ?? `Ошибка ${res.status}`);
+        const fullError = err?.errors.length ? err.errors.join(" | ") : `Ошибка ${res.status}`;
+        setClientError(fullError);
         if (err) setResult(err);
         return;
       }
@@ -406,7 +404,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
             setClientError(null);
             setOverlapPrompt(null);
             setWizardStep("preview");
-            setClassificationMap(new Map());
+            setClassificationMap({});
             if (file?.name.toLowerCase().endsWith(".csv")) {
               setFile(null);
               setBuffer(null);
@@ -431,7 +429,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
             setClientError(null);
             setOverlapPrompt(null);
             setWizardStep("preview");
-            setClassificationMap(new Map());
+            setClassificationMap({});
             if (file?.name.toLowerCase().endsWith(".pdf")) {
               setFile(null);
               setBuffer(null);
@@ -538,7 +536,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
           onChange={(e) => setSkipDuplicates(e.target.checked)}
           className="rounded border-slate-600"
         />
-        Пропускать дубликаты (та же дата ±1 день, сумма и описание)
+        Пропускать дубликаты (совпадают тип, время, сумма и описание)
       </label>
 
       {clientError && (
@@ -646,7 +644,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
             {classificationIndices.map((index) => {
               const row = preview.rows[index];
               if (!row) return null;
-              const current = classificationMap.get(index) ?? defaultTransferType(row);
+              const current = classificationMap[index] ?? defaultTransferType(row);
               const sameKey = normalizeDescGroup(row.description);
               const similarTotal = preview.rows.filter(
                 (r) => r.needsClassification && normalizeDescGroup(r.description) === sameKey
@@ -744,7 +742,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
               !vaultId ||
               (needsTransferClassification && wizardStep !== "classify") ||
               (wizardStep === "classify" &&
-                classificationIndices.some((i) => !classificationMap.has(i)))
+                classificationIndices.some((i) => classificationMap[i] == null))
             }
             className="w-full sm:w-auto"
           >
@@ -766,6 +764,13 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
             <strong className="text-white">{result.autoLinked}</strong>
             {", "}
             категория по правилам: <strong className="text-white">{result.autoCategorized}</strong>
+            {result.uncategorized > 0 && (
+              <>
+                {", "}
+                без категории:{" "}
+                <strong className="text-amber-400">{result.uncategorized}</strong>
+              </>
+            )}
           </p>
           {result.errors.length > 0 && (
             <ul className="text-xs text-amber-200 list-disc pl-5 space-y-1">

@@ -28,10 +28,14 @@ export async function deleteImportSession(
   id: string
 ): Promise<{ ok: true; deletedCount: number } | { ok: false; error: string }> {
   try {
-    const deletedCount = await prisma.transaction.count({
-      where: { importSessionId: id },
+    const deletedCount = await prisma.$transaction(async (tx) => {
+      const deleted = await tx.transaction.deleteMany({
+        where: { importSessionId: id },
+      });
+      await tx.importSession.delete({ where: { id } });
+      return deleted.count;
     });
-    await prisma.importSession.delete({ where: { id } });
+
     revalidatePath("/transactions");
     revalidatePath("/import");
     revalidatePath("/vaults");

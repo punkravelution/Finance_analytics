@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(update-config)",
+      "Bash(wc:*)",
+      "Bash(grep -n \"currentTotalValue\\\\|currentUnitPrice\" /d/Программинг/Finance_analyzer/Finance_analytics-1/Finance_analytics/src/lib/*.ts)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -n \"Без категории\\\\|null.*categor\\\\|uncategorized\" src/components/transactions/*.tsx src/components/forms/*.tsx)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(npx tsc:*)",
+      "Bash(find /d/Программинг/Finance_analyzer/Finance_analytics-1/Finance_analytics/src/app/api -name \"route.ts\" -exec basename {} \\\\;)",
+      "Bash(grep -l \"any\\\\|as any\" /d/Программинг/Finance_analyzer/Finance_analytics-1/Finance_analytics/src/components/**/*.tsx)",
+      "Bash(awk '{print $NF}')",
+      "Bash(grep:*)",
+      "Bash(npx next:*)"
+    ]
+  }
+}

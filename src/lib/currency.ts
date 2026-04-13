@@ -1,6 +1,12 @@
 import { prisma } from "./prisma";
 
 export type CurrencyCode = string;
+export class CurrencyRateNotFoundError extends Error {
+  constructor(fromCurrency: string, toCurrency: string) {
+    super(`Курс ${fromCurrency} → ${toCurrency} не найден.`);
+    this.name = "CurrencyRateNotFoundError";
+  }
+}
 
 /**
  * Двумерная карта курсов: { "USD": { "RUB": 90.5 }, ... }
@@ -79,7 +85,7 @@ export async function getExchangeRates(): Promise<ExchangeRateMap> {
  *   1. Прямой: map[from][to]
  *   2. Обратный: 1 / map[to][from]
  *   3. Через базовую валюту: map[from][RUB] / map[to][RUB]
- *   4. Fallback: возвращает исходную сумму с предупреждением
+ *   4. Если курс не найден: выбрасывает ошибку
  *
  * Это покрывает все пары при наличии курсов X→RUB.
  * Подготовлено к расширению: достаточно добавить новые строки ExchangeRate.
@@ -107,11 +113,8 @@ export function convertAmount(
     return (amount * fromToRub) / toToRub;
   }
 
-  // 4. Fallback
-  console.warn(
-    `[currency] Курс ${fromCurrency} → ${toCurrency} не найден, используется 1:1`
-  );
-  return amount;
+  // 4. Ошибка вместо тихого 1:1 fallback.
+  throw new CurrencyRateNotFoundError(fromCurrency, toCurrency);
 }
 
 /**

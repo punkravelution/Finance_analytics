@@ -1,4 +1,5 @@
 const COINGECKO_BASE = "https://api.coingecko.com/api/v3";
+const COINGECKO_REVALIDATE_SECONDS = 180;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -8,7 +9,9 @@ function sleep(ms: number): Promise<void> {
 export async function fetchWithRateLimitRetry(url: string): Promise<Response> {
   const maxAttempts = 3;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const response = await fetch(url, { cache: "no-store" });
+    const response = await fetch(url, {
+      next: { revalidate: COINGECKO_REVALIDATE_SECONDS },
+    });
     if (response.status !== 429) return response;
 
     if (attempt === maxAttempts) {

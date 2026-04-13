@@ -60,6 +60,7 @@ export async function createVaultRelation(
 
   revalidatePath(`/vaults/${data.fromVaultId}`);
   revalidatePath(`/vaults/${data.toVaultId}`);
+  revalidatePath("/vaults");
   redirect(`/vaults/${data.fromVaultId}`);
 }
 
@@ -80,6 +81,7 @@ export async function updateVaultRelation(
 
   revalidatePath(`/vaults/${data.fromVaultId}`);
   revalidatePath(`/vaults/${data.toVaultId}`);
+  revalidatePath("/vaults");
   redirect(`/vaults/${data.fromVaultId}`);
 }
 
@@ -87,7 +89,16 @@ export async function deleteVaultRelation(
   id: string,
   vaultId: string
 ): Promise<void> {
+  const rel = await prisma.vaultRelation.findUnique({
+    where: { id },
+    select: { fromVaultId: true, toVaultId: true },
+  });
   await prisma.vaultRelation.delete({ where: { id } });
+  if (rel) {
+    revalidatePath(`/vaults/${rel.fromVaultId}`);
+    revalidatePath(`/vaults/${rel.toVaultId}`);
+  }
+  revalidatePath("/vaults");
   revalidatePath(`/vaults/${vaultId}`);
   redirect(`/vaults/${vaultId}`);
 }

@@ -114,12 +114,14 @@ export function AssetForm({
   const [steamOptions, setSteamOptions] = useState<SteamSearchResult[]>([]);
   const [searchingSteam, setSearchingSteam] = useState(false);
   const [updatingSteamPrice, setUpdatingSteamPrice] = useState(false);
+  const [steamError, setSteamError] = useState("");
   const [updatingMoexPrice, setUpdatingMoexPrice] = useState(false);
   const [moexError, setMoexError] = useState("");
   const [steamRubUnitPrice, setSteamRubUnitPrice] = useState<number | null>(null);
   const [cryptoOptions, setCryptoOptions] = useState<CryptoSearchResult[]>([]);
   const [searchingCrypto, setSearchingCrypto] = useState(false);
   const [updatingCryptoPrice, setUpdatingCryptoPrice] = useState(false);
+  const [cryptoError, setCryptoError] = useState("");
   const [cryptoRubUnitPrice, setCryptoRubUnitPrice] = useState<number | null>(null);
   const isSteamItem = assetType === "item";
   const isCrypto = assetType === "crypto";
@@ -272,11 +274,15 @@ export function AssetForm({
 
   async function updateCryptoPriceById(geckoId: string): Promise<boolean> {
     setUpdatingCryptoPrice(true);
+    setCryptoError("");
     try {
       const response = await fetch(`/api/crypto-price?id=${encodeURIComponent(geckoId)}`, {
         cache: "no-store",
       });
-      if (!response.ok) return false;
+      if (!response.ok) {
+        setCryptoError("Не удалось получить цену из CoinGecko.");
+        return false;
+      }
       const json = (await response.json()) as { rub?: number | null; usd?: number | null };
       const rub =
         typeof json.rub === "number" && Number.isFinite(json.rub) && json.rub > 0 ? json.rub : null;
@@ -288,6 +294,7 @@ export function AssetForm({
         rub ??
         (usd != null && usdToRub != null && usdToRub > 0 ? usd * usdToRub : null);
       if (priceRubEquivalent == null || !Number.isFinite(priceRubEquivalent) || priceRubEquivalent <= 0) {
+        setCryptoError("CoinGecko не вернул корректную цену.");
         return false;
       }
 
@@ -305,6 +312,7 @@ export function AssetForm({
       }
       return true;
     } catch {
+      setCryptoError("Не удалось получить цену из CoinGecko.");
       return false;
     } finally {
       setUpdatingCryptoPrice(false);
@@ -321,12 +329,16 @@ export function AssetForm({
 
   async function updateSteamPriceByHash(hashName: string): Promise<boolean> {
     setUpdatingSteamPrice(true);
+    setSteamError("");
     try {
       const response = await fetch(
         `/api/steam-price?hash_name=${encodeURIComponent(hashName)}`,
         { cache: "no-store" }
       );
-      if (!response.ok) return false;
+      if (!response.ok) {
+        setSteamError("Не удалось получить цену из Steam.");
+        return false;
+      }
       const json = (await response.json()) as { price: number | null };
       if (typeof json.price === "number" && Number.isFinite(json.price) && json.price > 0) {
         setSteamRubUnitPrice(json.price);
@@ -343,9 +355,10 @@ export function AssetForm({
         }
         return true;
       }
+      setSteamError("Steam не вернул корректную цену.");
       return false;
     } catch {
-      // Без всплывающих ошибок: просто оставляем текущее значение.
+      setSteamError("Не удалось получить цену из Steam.");
       return false;
     } finally {
       setUpdatingSteamPrice(false);
@@ -687,6 +700,8 @@ export function AssetForm({
               {updatingMoexPrice ? "Получаем цену..." : "Получить цену с MOEX"}
             </button>
           )}
+          {steamError && <p className="mt-1 text-xs text-red-400">{steamError}</p>}
+          {cryptoError && <p className="mt-1 text-xs text-red-400">{cryptoError}</p>}
           {moexError && <p className="mt-1 text-xs text-red-400">{moexError}</p>}
         </div>
       </div>
