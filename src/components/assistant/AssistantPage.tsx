@@ -25,6 +25,7 @@ import {
   type StructuredAssistantPayload,
   type StructuredChartType,
 } from "@/lib/assistantStructuredPayload";
+import { DownloadAiReportButton } from "@/components/export/DownloadAiReportButton";
 
 type ChatRole = "user" | "assistant";
 
@@ -319,9 +320,12 @@ export function AssistantPage() {
             height: "calc(100vh - 120px)",
           }}
         >
-          <div className="flex shrink-0 items-center gap-2 border-b border-[hsl(216,34%,17%)] px-4 py-3">
-            <Sparkles className="h-5 w-5 text-indigo-400 shrink-0" aria-hidden />
-            <span className="text-sm font-semibold text-white">ИИ-аналитик</span>
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[hsl(216,34%,17%)] px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-indigo-400 shrink-0" aria-hidden />
+              <span className="text-sm font-semibold text-white">ИИ-аналитик</span>
+            </div>
+            <DownloadAiReportButton />
           </div>
 
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto scroll-smooth px-4 py-3">

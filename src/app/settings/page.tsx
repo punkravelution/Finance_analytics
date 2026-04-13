@@ -3,6 +3,7 @@ import { Settings, Database, Info, Globe, Tags, ListFilter } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getBaseCurrency, getActiveCurrencies } from "@/lib/currency";
 import { BaseCurrencyForm } from "@/components/settings/BaseCurrencyForm";
+import { DownloadAiReportButton } from "@/components/export/DownloadAiReportButton";
 
 export const dynamic = "force-dynamic";
 
@@ -138,6 +139,15 @@ export default async function SettingsPage() {
                 <span className="text-slate-300">Recharts</span>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Экспорт данных</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DownloadAiReportButton />
           </CardContent>
         </Card>
       </div>
