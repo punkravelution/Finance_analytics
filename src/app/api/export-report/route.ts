@@ -79,6 +79,16 @@ function txSignedAmount(type: TxType, amount: number, currency: string): string 
   return `→ ${formatMoney(abs, currency)}`;
 }
 
+function cleanDescription(raw: string): string {
+  return raw
+    .replace(/^Операция\s*\(/i, "")
+    .replace(/\)\s*$/, "")
+    .replace(/\.\s*Операция по карте\s*\*+\d{4}/gi, "")
+    .replace(/Дата обработки[¹1]\s*и код авторизации операции[²2]/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 function daysUntil(dueDate: Date, today: Date): number {
   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
   const end = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate()).getTime();
@@ -225,26 +235,20 @@ export async function GET(): Promise<Response> {
     .map((entry) => {
       const rows = entry[1];
       const title = monthHeader(rows[0].date);
-      const table = rows
+      const lines = rows
         .map((tx) => {
           const type = tx.type as TxType;
           const baseDescription = type === "transfer" ? "Перевод" : "Операция";
           const note = tx.note?.trim();
           const description = note ? `${baseDescription} (${note})` : baseDescription;
+          const cleanedDescription = cleanDescription(description);
           const categoryName = tx.category?.name ?? "[без категории]";
-          const vaultName =
-            type === "transfer"
-              ? `${tx.fromVault?.name ?? "—"} → ${tx.toVault?.name ?? "—"}`
-              : tx.toVault?.name ?? tx.fromVault?.name ?? "—";
-          return `| ${formatDateShort(tx.date)} | ${txTypeLabel(type)} | ${description} | ${categoryName} | ${txSignedAmount(type, tx.amount, tx.currency)} | ${vaultName} |`;
+          return `${formatDateShort(tx.date)} | ${txTypeLabel(type)} | ${categoryName} | ${txSignedAmount(type, tx.amount, tx.currency)} | ${cleanedDescription}`;
         })
         .join("\n");
 
       return `### ${title}
-
-| Дата | Тип | Описание | Категория | Сумма | Хранилище |
-|------|-----|----------|-----------|-------|-----------|
-${table}`;
+${lines}`;
     })
     .join("\n\n");
 

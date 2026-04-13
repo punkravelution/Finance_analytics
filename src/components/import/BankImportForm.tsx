@@ -72,12 +72,21 @@ interface BankImportFormProps {
   vaults: VaultOption[];
 }
 
+type TbankFileFormat = "csv" | "pdf" | null;
+
 function parseTbankPreview(buffer: ArrayBuffer): { rows: ParsedTransaction[]; errors: string[] } {
   const r = parseTbankCsv(buffer);
   return { rows: r.transactions, errors: r.errors };
 }
 
-function revivePdfTransactions(raw: unknown): ParsedTransaction[] {
+function detectTbankFileFormat(file: File | null): TbankFileFormat {
+  const name = file?.name.toLowerCase() ?? "";
+  if (name.endsWith(".csv")) return "csv";
+  if (name.endsWith(".pdf")) return "pdf";
+  return null;
+}
+
+function revivePdfTransactions(raw: unknown, bank: BankChoice): ParsedTransaction[] {
   if (!Array.isArray(raw)) return [];
   const out: ParsedTransaction[] = [];
   for (const item of raw) {
@@ -109,7 +118,7 @@ function revivePdfTransactions(raw: unknown): ParsedTransaction[] {
       rawCategory,
       type,
       needsClassification,
-      bankSource: "sberbank",
+      bankSource: bank,
     });
   }
   return out;
@@ -145,18 +154,23 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
   );
   const [storedRules, setStoredRules] = useState<TransferRuleMap>({});
   const [overlapPrompt, setOverlapPrompt] = useState<ImportBankOverlapBody | null>(null);
+  const tbankFileFormat = detectTbankFileFormat(file);
 
   useEffect(() => {
     setStoredRules(loadTransferRules());
   }, []);
 
   const tbankPreview = useMemo(() => {
-    if (bank !== "tbank" || !buffer) return { rows: [] as ParsedTransaction[], errors: [] as string[] };
+    if (bank !== "tbank" || !buffer || tbankFileFormat !== "csv") {
+      return { rows: [] as ParsedTransaction[], errors: [] as string[] };
+    }
     return parseTbankPreview(buffer);
-  }, [bank, buffer]);
+  }, [bank, buffer, tbankFileFormat]);
 
   useEffect(() => {
-    if (bank !== "sberbank" || !file?.name.toLowerCase().endsWith(".pdf")) {
+    const isSberPdf = bank === "sberbank" && file?.name.toLowerCase().endsWith(".pdf");
+    const isTbankPdf = bank === "tbank" && file?.name.toLowerCase().endsWith(".pdf");
+    if (!isSberPdf && !isTbankPdf) {
       setPdfPreview(null);
       setPdfPreviewLoading(false);
       return;
@@ -165,6 +179,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
     setPdfPreviewLoading(true);
     const fd = new FormData();
     fd.append("file", file);
+    fd.append("bank", bank);
     void fetch("/api/import-bank/preview", { method: "POST", body: fd })
       .then(async (res) => {
         const json = (await res.json()) as { transactions?: unknown[]; errors?: string[] };
@@ -174,7 +189,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
           setPdfPreview({ rows: [], errors: errList });
           return;
         }
-        const rows = revivePdfTransactions(json.transactions ?? []);
+        const rows = revivePdfTransactions(json.transactions ?? [], bank);
         setPdfPreview({ rows, errors: Array.isArray(json.errors) ? json.errors : [] });
       })
       .catch(() => {
@@ -192,7 +207,9 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
 
   const preview =
     bank === "tbank"
-      ? tbankPreview
+      ? tbankFileFormat === "pdf"
+        ? { rows: pdfPreview?.rows ?? [], errors: pdfPreview?.errors ?? [] }
+        : tbankPreview
       : { rows: pdfPreview?.rows ?? [], errors: pdfPreview?.errors ?? [] };
 
   const previewRows = preview.rows.slice(0, 10);
@@ -227,11 +244,15 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
           setBuffer(null);
           return;
         }
-      } else if (!lower.endsWith(".csv")) {
-        setClientError("Для Т-Банка нужен файл CSV (.csv).");
-        setFile(null);
-        setBuffer(null);
-        return;
+      } else {
+        const isTbankCsv = lower.endsWith(".csv");
+        const isTbankPdf = lower.endsWith(".pdf");
+        if (!isTbankCsv && !isTbankPdf) {
+          setClientError("Для Т-Банка загрузите PDF («Справка о движении средств») или CSV.");
+          setFile(null);
+          setBuffer(null);
+          return;
+        }
       }
       setFile(f);
       setWizardStep("preview");
@@ -424,7 +445,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
           )}
         >
           <p className="text-lg font-semibold text-white">Т-Банк</p>
-          <p className="text-xs text-slate-500 mt-1">CSV, UTF-8</p>
+          <p className="text-xs text-slate-500 mt-1">PDF или CSV</p>
         </button>
       </div>
 
@@ -438,8 +459,8 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
             (PDF).
           </li>
           <li>
-            <strong className="text-slate-300">Т-Банк:</strong> Главная → меню «⋯» по счёту → Выписка →
-            Скачать CSV.
+            <strong className="text-slate-300">Т-Банк:</strong> Главная → ··· → Справка о движении средств →
+            Сформировать (PDF) или Главная → Выписка → Скачать CSV.
           </li>
         </ul>
       </details>
@@ -458,11 +479,11 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
           <p className="text-sm text-slate-400 mb-3">
             {bank === "sberbank"
               ? "Перетащите PDF файл выписки или выберите файл"
-              : "Перетащите CSV файл выписки или выберите файл"}
+              : "Перетащите PDF или CSV файл выписки или выберите файл"}
           </p>
           <input
             type="file"
-            accept={bank === "sberbank" ? ".pdf,application/pdf" : ".csv,text/csv"}
+            accept={bank === "sberbank" ? ".pdf,application/pdf" : ".csv,.pdf,text/csv,application/pdf"}
             className="hidden"
             id="bank-csv-input"
             onChange={(e) => void onPickFile(e.target.files?.[0] ?? null)}
@@ -477,6 +498,12 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
             Выбрать файл
           </label>
           {file && <p className="text-xs text-slate-400 mt-3 truncate max-w-full">{file.name}</p>}
+          {bank === "tbank" && (
+            <p className="mt-2 text-xs text-slate-500">
+              Поддерживаются PDF (Справка о движении средств) и CSV
+              {tbankFileFormat ? ` · выбран формат: ${tbankFileFormat.toUpperCase()}` : ""}
+            </p>
+          )}
         </div>
       </div>
 
@@ -543,7 +570,7 @@ export function BankImportForm({ vaults }: BankImportFormProps) {
         </div>
       )}
 
-      {pdfPreviewLoading && bank === "sberbank" && file?.name.toLowerCase().endsWith(".pdf") && (
+      {pdfPreviewLoading && file?.name.toLowerCase().endsWith(".pdf") && (
         <p className="text-sm text-slate-500">Разбор PDF для предпросмотра…</p>
       )}
 

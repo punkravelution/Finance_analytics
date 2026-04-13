@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseSberbankPdf, SberbankPdfParseError } from "@/lib/bankParsers/sberbank-pdf";
+import { parseTbankPdf, TbankPdfParseError } from "@/lib/bankParsers/tbank-pdf";
 import type { ParsedTransaction } from "@/lib/bankParsers/types";
 
 export const runtime = "nodejs";
@@ -17,6 +18,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const formData = await request.formData();
     const fileEntry = formData.get("file");
+    const bankRaw = formData.get("bank")?.toString();
+    const bank = bankRaw === "tbank" ? "tbank" : "sberbank";
     if (!(fileEntry instanceof File)) {
       return NextResponse.json({ errors: ["Файл не передан."] }, { status: 400 });
     }
@@ -24,13 +27,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ errors: ["Для предпросмотра нужен PDF."] }, { status: 400 });
     }
     const buf = await fileEntry.arrayBuffer();
-    const parsed = await parseSberbankPdf(buf);
+    const parsed = bank === "tbank" ? await parseTbankPdf(buf) : await parseSberbankPdf(buf);
     return NextResponse.json({
       transactions: serializeTransactions(parsed.transactions),
       errors: parsed.errors,
     });
   } catch (e) {
     if (e instanceof SberbankPdfParseError) {
+      return NextResponse.json({ transactions: [], errors: [e.message] }, { status: 400 });
+    }
+    if (e instanceof TbankPdfParseError) {
       return NextResponse.json({ transactions: [], errors: [e.message] }, { status: 400 });
     }
     const msg = e instanceof Error ? e.message : "Ошибка предпросмотра.";

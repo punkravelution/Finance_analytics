@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { parseSberbankCsv } from "@/lib/bankParsers/sberbank";
 import { parseSberbankPdf, SberbankPdfParseError } from "@/lib/bankParsers/sberbank-pdf";
 import { parseTbankCsv } from "@/lib/bankParsers/tbank";
+import { parseTbankPdf, TbankPdfParseError } from "@/lib/bankParsers/tbank-pdf";
 import { createImportedCategoryResolver } from "@/lib/bankParsers/categoryMapper";
 import type { ParsedTransaction } from "@/lib/bankParsers/types";
 import {
@@ -289,8 +290,13 @@ export async function POST(
     let parsed: ParsedBatch;
     try {
       if (bankRaw === "tbank") {
-        if (!isCsv) return fail(400, ["Т-Банк: загрузите файл CSV."]);
-        parsed = parseTbankCsv(buf);
+        if (isPdf) {
+          parsed = await parseTbankPdf(buf);
+        } else if (isCsv) {
+          parsed = parseTbankCsv(buf);
+        } else {
+          return fail(400, ["Т-Банк: загрузите PDF («Справка о движении средств») или CSV."]);
+        }
       } else if (bankRaw === "sberbank-pdf") {
         if (!isPdf) return fail(400, ["Для режима sberbank-pdf нужен файл .pdf."]);
         parsed = await parseSberbankPdf(buf);
@@ -307,6 +313,9 @@ export async function POST(
       }
     } catch (e) {
       if (e instanceof SberbankPdfParseError) {
+        return fail(400, [e.message]);
+      }
+      if (e instanceof TbankPdfParseError) {
         return fail(400, [e.message]);
       }
       throw e;
